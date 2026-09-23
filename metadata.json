@@ -1,0 +1,6 @@
+{
+  "name": "KIIDFROMDREAM Fish Sales POS",
+  "description": "Comprehensive Point of Sales (POS) system for fish businesses featuring real-time inventory tracking, auto-generated IDs, sales processing, customer loyalty, supplier purchase orders, and daily reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
