@@ -11,7 +11,10 @@ import {
   Filter, 
   Eye, 
   CheckCircle, 
-  AlertCircle 
+  AlertCircle,
+  Database,
+  RefreshCw,
+  Wifi
 } from 'lucide-react';
 
 interface SalesHistoryManagerProps {
@@ -23,7 +26,16 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
   onViewReceipt,
   onOpenRefundForTx,
 }) => {
-  const { sales, refunds, customers, employees } = usePos();
+  const { 
+    sales, 
+    refunds, 
+    customers, 
+    employees, 
+    syncStatus, 
+    lastSyncTime, 
+    serverVersion, 
+    forceSync 
+  } = usePos();
 
   const [activeTab, setActiveTab] = useState<'sales' | 'refunds'>('sales');
   const [search, setSearch] = useState('');
@@ -87,6 +99,41 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
             }`}
           >
             Refunds & Returns ({refunds.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Central Database Live Multi-System Sync Status Banner */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center space-x-3">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+            <Database className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold text-slate-100">Centralized Cloud Sales Ledger</span>
+              <span className="flex items-center space-x-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-300 border border-emerald-700/50">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>{syncStatus === 'synced' ? 'Multi-Terminal Live' : syncStatus === 'syncing' ? 'Syncing...' : 'Local Cache'}</span>
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Admins & Supervisors have full visibility of all sales submitted across every cashier terminal and published system.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2 self-end sm:self-center text-xs">
+          <span className="text-[10px] text-slate-400 font-mono hidden md:inline">
+            Version {serverVersion} • Last Sync: {lastSyncTime}
+          </span>
+          <button
+            onClick={() => forceSync()}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-colors"
+            title="Force immediate refresh of all transactions from central database"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+            <span>Sync Live Sales</span>
           </button>
         </div>
       </div>

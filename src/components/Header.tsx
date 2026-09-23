@@ -21,7 +21,10 @@ import {
   ShieldAlert,
   Settings,
   LogOut,
-  LockKeyhole
+  LockKeyhole,
+  Database,
+  RefreshCw,
+  Radio
 } from 'lucide-react';
 import { ROLE_BADGES } from '../utils/rbac';
 import { PinAuthModal } from './security/PinAuthModal';
@@ -47,7 +50,14 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
     auditLogs,
     openLoginModal,
     lockTerminal,
-    logout
+    logout,
+    isOnline,
+    syncStatus,
+    lastSyncTime,
+    serverVersion,
+    forceSync,
+    recentBroadcastNotice,
+    clearBroadcastNotice
   } = usePos();
 
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -173,6 +183,36 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
               <div className="flex items-center space-x-1.5 text-slate-300 bg-slate-800/80 px-2.5 py-1.5 rounded-md border border-slate-700/60 font-mono text-[11px]">
                 <Clock className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{currentTime || '22 Sep 2026'}</span>
+              </div>
+
+              {/* Centralized Cloud Database Status Badge */}
+              <div 
+                className="flex items-center space-x-1.5 bg-slate-800/90 text-slate-200 px-2.5 py-1.5 rounded-md border border-slate-700/80 font-mono text-[11px]"
+                title={`Centralized Multi-Terminal Database. Status: ${syncStatus}. Version: ${serverVersion}. Last sync: ${lastSyncTime}. All sales from all cashiers/systems sync here.`}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    syncStatus === 'synced' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-amber-400' : 'bg-rose-400'
+                  }`} />
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                    syncStatus === 'synced' ? 'bg-emerald-500' : syncStatus === 'syncing' ? 'bg-amber-500' : 'bg-rose-500'
+                  }`} />
+                </span>
+                <Database className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-slate-300 font-semibold hidden xl:inline">Central DB:</span>
+                <span className={`font-medium ${
+                  syncStatus === 'synced' ? 'text-emerald-400' : syncStatus === 'syncing' ? 'text-amber-400' : 'text-rose-400'
+                }`}>
+                  {syncStatus === 'synced' ? 'Live Synced' : syncStatus === 'syncing' ? 'Syncing...' : 'Offline Cache'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => forceSync()}
+                  className="ml-1 text-slate-400 hover:text-white p-0.5 hover:bg-slate-700 rounded transition-colors"
+                  title="Force Sync with Central Database Server"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin text-emerald-400' : ''}`} />
+                </button>
               </div>
 
               {/* Inventory Alerts Badge */}
@@ -435,6 +475,26 @@ export const Header: React.FC<HeaderProps> = ({ currentTab, setCurrentTab, onOpe
           </div>
         )}
       </header>
+
+      {/* Live Central Broadcast Notification */}
+      {recentBroadcastNotice && (
+        <div className="bg-emerald-600 text-white text-xs px-4 py-2 font-medium flex items-center justify-between shadow-md transition-all">
+          <div className="flex items-center space-x-2">
+            <Radio className="w-4 h-4 animate-pulse text-emerald-200" />
+            <span>{recentBroadcastNotice}</span>
+            <span className="text-[10px] bg-emerald-700 px-2 py-0.5 rounded text-emerald-100 uppercase tracking-wider font-bold">
+              Multi-System Live Sync
+            </span>
+          </div>
+          <button 
+            type="button"
+            onClick={clearBroadcastNotice}
+            className="text-emerald-200 hover:text-white text-xs font-bold px-2 py-0.5 rounded hover:bg-emerald-700/50 transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* PIN Authentication & Override Modal */}
       <PinAuthModal

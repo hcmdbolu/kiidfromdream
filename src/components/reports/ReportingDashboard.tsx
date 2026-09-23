@@ -13,7 +13,9 @@ import {
   CreditCard,
   CheckCircle2,
   Package,
-  Clock
+  Clock,
+  Database,
+  RefreshCw
 } from 'lucide-react';
 
 interface ReportingDashboardProps {
@@ -21,7 +23,17 @@ interface ReportingDashboardProps {
 }
 
 export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickReorder }) => {
-  const { products, sales, customers, employees, suppliers } = usePos();
+  const { 
+    products, 
+    sales, 
+    customers, 
+    employees, 
+    suppliers,
+    syncStatus,
+    lastSyncTime,
+    serverVersion,
+    forceSync
+  } = usePos();
 
   const [dateRange, setDateRange] = useState<'all' | 'today'>('all');
 
@@ -160,7 +172,32 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </p>
         </div>
 
-        <div className="flex items-center space-x-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Central DB Sync Status Badge */}
+          <div 
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 text-slate-200 border border-slate-800 font-mono text-[11px]"
+            title={`Multi-System Central DB sync: ${syncStatus}. Version: ${serverVersion}. Last sync: ${lastSyncTime}`}
+          >
+            <span className="relative flex h-2 w-2">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                syncStatus === 'synced' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-amber-400' : 'bg-rose-400'
+              }`} />
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                syncStatus === 'synced' ? 'bg-emerald-500' : syncStatus === 'syncing' ? 'bg-amber-500' : 'bg-rose-500'
+              }`} />
+            </span>
+            <Database className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-slate-400 hidden md:inline">Central DB:</span>
+            <span className="text-emerald-400 font-bold">{syncStatus === 'synced' ? 'Synced' : syncStatus}</span>
+            <button
+              onClick={() => forceSync()}
+              className="ml-1 p-0.5 text-slate-400 hover:text-white rounded"
+              title="Force Sync Now"
+            >
+              <RefreshCw className={`w-3 h-3 ${syncStatus === 'syncing' ? 'animate-spin text-emerald-400' : ''}`} />
+            </button>
+          </div>
+
           <div className="bg-slate-100 p-1 rounded-lg flex space-x-1">
             <button
               onClick={() => setDateRange('all')}

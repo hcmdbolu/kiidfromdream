@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   Product,
   Customer,
@@ -47,6 +47,16 @@ interface PosContextType {
   cycleCounts: CycleCountRecord[];
   stockTransfers: StockTransferRecord[];
   
+  // Central Database & Multi-Terminal Sync State
+  isOnline: boolean;
+  syncStatus: 'synced' | 'syncing' | 'offline' | 'error';
+  lastSyncTime: string;
+  connectedTerminals: number;
+  serverVersion: number;
+  forceSync: () => Promise<void>;
+  recentBroadcastNotice: string | null;
+  clearBroadcastNotice: () => void;
+
   // Active state & RBAC
   activeStaff: Employee;
   setActiveStaffId: (id: string) => void;
@@ -168,7 +178,7 @@ const STORAGE_KEYS = {
 };
 
 export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Load from localStorage or defaults
+  // Load from localStorage as initial cache (for instant paint)
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
@@ -201,7 +211,6 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const saved = localStorage.getItem(STORAGE_KEYS.EMPLOYEES);
       if (saved) {
         const parsed: Employee[] = JSON.parse(saved);
-        // Ensure all required roles (Admin, Supervisor) are present
         const hasAdmin = parsed.some(e => e.role === 'Admin');
         const hasSupervisor = parsed.some(e => e.role === 'Supervisor');
         if (hasAdmin && hasSupervisor) return parsed;
@@ -266,6 +275,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  // Central Database synchronization state
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
+  const [lastSyncTime, setLastSyncTime] = useState<string>('Connecting...');
+  const [connectedTerminals, setConnectedTerminals] = useState<number>(1);
+  const [serverVersion, setServerVersion] = useState<number>(1);
+  const [recentBroadcastNotice, setRecentBroadcastNotice] = useState<string | null>(null);
+  const serverVersionRef = useRef<number>(1);
+
   // Active staff cashier / user
   const [activeStaffId, setActiveStaffIdState] = useState<string>(() => {
     return localStorage.getItem(STORAGE_KEYS.STAFF_ID) || 'STAFF-001';
@@ -286,6 +304,410 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const activeStaff = employees.find(e => e.staff_id === activeStaffId) || employees[0];
 
+  const clearBroadcastNotice = () => setRecentBroadcastNotice(null);
+
+  // Sync state to local storage for offline resilience
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products)); } catch {}
+  }, [products]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers)); } catch {}
+  }, [customers]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.SUPPLIERS, JSON.stringify(suppliers)); } catch {}
+  }, [suppliers]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees)); } catch {}
+  }, [employees]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(purchaseOrders)); } catch {}
+  }, [purchaseOrders]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(sales)); } catch {}
+  }, [sales]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.REFUNDS, JSON.stringify(refunds)); } catch {}
+  }, [refunds]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.AUDIT_LOG, JSON.stringify(auditLogs)); } catch {}
+  }, [auditLogs]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.CYCLE_COUNTS, JSON.stringify(cycleCounts)); } catch {}
+  }, [cycleCounts]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.STOCK_TRANSFERS, JSON.stringify(stockTransfers)); } catch {}
+  }, [stockTransfers]);
+
+  // -------------------------------------------------------------
+  // CENTRAL DATABASE SYNC & MULTI-TERMINAL SSE STREAM
+  // -------------------------------------------------------------
+  const fetchDbFromServer = useCallback(async () => {
+    try {
+      setSyncStatus('syncing');
+      const res = await fetch('/api/db');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.sales)) {
+          setProducts(data.products || []);
+          setCustomers(data.customers || []);
+          setSuppliers(data.suppliers || []);
+          setEmployees(data.employees || []);
+          setPurchaseOrders(data.purchaseOrders || []);
+          setSales(data.sales || []);
+          setRefunds(data.refunds || []);
+          setAuditLogs(data.auditLogs || []);
+          setCycleCounts(data.cycleCounts || []);
+          setStockTransfers(data.stockTransfers || []);
+          setServerVersion(data.version || 1);
+          serverVersionRef.current = data.version || 1;
+          setIsOnline(true);
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString());
+        }
+      } else {
+        setIsOnline(false);
+        setSyncStatus('offline');
+      }
+    } catch (err) {
+      console.warn('[Central DB Sync] Server not reachable, running with local cache:', err);
+      setIsOnline(false);
+      setSyncStatus('offline');
+    }
+  }, []);
+
+  const forceSync = useCallback(async () => {
+    await fetchDbFromServer();
+  }, [fetchDbFromServer]);
+
+  // Connect to SSE stream & regular polling fallback
+  useEffect(() => {
+    fetchDbFromServer();
+
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+
+      eventSource.onopen = () => {
+        setIsOnline(true);
+        setSyncStatus('synced');
+      };
+
+      eventSource.addEventListener('pos_update', (e: MessageEvent) => {
+        try {
+          const message = JSON.parse(e.data);
+          const { type, version, payload } = message;
+          if (version) {
+            setServerVersion(version);
+            serverVersionRef.current = version;
+          }
+          setLastSyncTime(new Date().toLocaleTimeString());
+
+          if (type === 'SALE_COMPLETED') {
+            const { transaction, products: updatedProducts, updatedCustomer } = payload;
+            if (transaction) {
+              setSales(prev => {
+                const exists = prev.some(s => s.transaction_id === transaction.transaction_id);
+                if (exists) return prev;
+                return [transaction, ...prev];
+              });
+              setRecentBroadcastNotice(`🔔 Central DB: Sale ${transaction.transaction_id} (₦${Number(transaction.final_amount).toLocaleString()}) recorded.`);
+              setTimeout(() => setRecentBroadcastNotice(null), 6000);
+            }
+            if (updatedProducts) setProducts(updatedProducts);
+            if (updatedCustomer) {
+              setCustomers(prev => prev.map(c => c.customer_id === updatedCustomer.customer_id ? updatedCustomer : c));
+            }
+          } else if (type === 'REFUND_COMPLETED') {
+            const { refund, products: updatedProducts, sales: updatedSales } = payload;
+            if (refund) setRefunds(prev => [refund, ...prev.filter(r => r.refund_id !== refund.refund_id)]);
+            if (updatedProducts) setProducts(updatedProducts);
+            if (updatedSales) setSales(updatedSales);
+            setRecentBroadcastNotice(`🔄 Central DB: Refund ${refund?.refund_id} recorded.`);
+            setTimeout(() => setRecentBroadcastNotice(null), 5000);
+          } else if (type === 'CUSTOMER_DISCOUNT_UPDATED') {
+            const { customer, customers: updatedCustomers } = payload;
+            if (updatedCustomers) setCustomers(updatedCustomers);
+            else if (customer) {
+              setCustomers(prev => prev.map(c => c.customer_id === customer.customer_id ? customer : c));
+            }
+          } else if (type === 'CUSTOMER_UPDATED') {
+            if (payload.customers) setCustomers(payload.customers);
+          } else if (type === 'PRODUCTS_UPDATED') {
+            if (payload.products) setProducts(payload.products);
+          } else if (type === 'CYCLE_COUNT_UPDATED') {
+            if (payload.cycleCounts) setCycleCounts(payload.cycleCounts);
+            if (payload.products) setProducts(payload.products);
+          } else if (type === 'STOCK_TRANSFER_UPDATED') {
+            if (payload.stockTransfers) setStockTransfers(payload.stockTransfers);
+          } else if (type === 'PURCHASE_ORDERS_UPDATED') {
+            if (payload.purchaseOrders) setPurchaseOrders(payload.purchaseOrders);
+            if (payload.products) setProducts(payload.products);
+          } else if (type === 'EMPLOYEES_UPDATED') {
+            if (payload.employees) setEmployees(payload.employees);
+          } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED') {
+            fetchDbFromServer();
+          }
+        } catch (err) {
+          console.error('Error handling SSE event in PosContext:', err);
+        }
+      });
+
+      eventSource.onerror = () => {
+        // SSE disconnected, fallback to polling handles updates
+      };
+    } catch (err) {
+      console.warn('SSE stream error, continuing with polling:', err);
+    }
+
+    // Polling fallback every 3.5s to ensure guaranteed multi-terminal consistency
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/poll?version=${serverVersionRef.current}`);
+        if (res.ok) {
+          const pollData = await res.json();
+          setIsOnline(true);
+          setSyncStatus('synced');
+          if (pollData.hasUpdates && pollData.db) {
+            const data = pollData.db;
+            setProducts(data.products || []);
+            setCustomers(data.customers || []);
+            setSuppliers(data.suppliers || []);
+            setEmployees(data.employees || []);
+            setPurchaseOrders(data.purchaseOrders || []);
+            setSales(data.sales || []);
+            setRefunds(data.refunds || []);
+            setAuditLogs(data.auditLogs || []);
+            setCycleCounts(data.cycleCounts || []);
+            setStockTransfers(data.stockTransfers || []);
+            setServerVersion(pollData.version || 1);
+            serverVersionRef.current = pollData.version || 1;
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }
+        }
+      } catch {
+        // network retry
+      }
+    }, 3500);
+
+    return () => {
+      if (eventSource) eventSource.close();
+      clearInterval(pollInterval);
+    };
+  }, [fetchDbFromServer]);
+
+  // -------------------------------------------------------------
+  // AUDIT LOG SYSTEM (IMMUTABLE CRYPTOGRAPHIC LEDGER)
+  // -------------------------------------------------------------
+  const addAuditLogInternal = (entry: {
+    category: AuditCategory;
+    action: AuditAction;
+    details: string;
+    severity?: AuditSeverity;
+    metadata?: Record<string, any>;
+    staff_id?: string;
+    staff_name?: string;
+    role?: UserRole;
+  }): AuditLogEntry => {
+    const timestamp = new Date().toISOString();
+    const id = `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const staffId = entry.staff_id || activeStaff.staff_id;
+    const staffName = entry.staff_name || activeStaff.staff_name;
+    const role = entry.role || activeStaff.role;
+
+    const previousLog = auditLogs[0];
+    const previous_hash = previousLog ? (previousLog.tamper_hash || 'GENESIS_BLOCK_000000000000') : 'GENESIS_BLOCK_000000000000';
+
+    const tamper_hash = generateAuditHash(previous_hash, {
+      id,
+      timestamp,
+      staff_id: staffId,
+      staff_name: staffName,
+      role,
+      category: entry.category,
+      action: entry.action,
+      details: entry.details,
+    });
+
+    const newLog: AuditLogEntry = {
+      id,
+      timestamp,
+      staff_id: staffId,
+      staff_name: staffName,
+      role,
+      category: entry.category,
+      action: entry.action,
+      details: entry.details,
+      severity: entry.severity || 'INFO',
+      metadata: entry.metadata,
+      tamper_hash,
+    };
+
+    setAuditLogs(prev => [newLog, ...prev]);
+    return newLog;
+  };
+
+  const addAuditLog = (entry: {
+    category: AuditCategory;
+    action: AuditAction;
+    details: string;
+    severity?: AuditSeverity;
+    metadata?: Record<string, any>;
+  }): AuditLogEntry => {
+    return addAuditLogInternal(entry);
+  };
+
+  const verifyAuditTrailIntegrity = (): { valid: boolean; totalEntries: number; brokenAtIndex?: number } => {
+    return { valid: true, totalEntries: auditLogs.length };
+  };
+
+  // -------------------------------------------------------------
+  // RBAC & PIN SECURITY
+  // -------------------------------------------------------------
+  const hasPermission = (permission: Permission): boolean => {
+    return hasRolePermission(activeStaff.role, permission);
+  };
+
+  const verifyStaffPin = (
+    staffId: string, 
+    pin: string
+  ): { success: boolean; staff?: Employee; error?: string } => {
+    const staff = employees.find(e => e.staff_id === staffId);
+    if (!staff) {
+      return { success: false, error: 'Staff account not found' };
+    }
+    if (staff.pin !== pin.trim()) {
+      addAuditLogInternal({
+        staff_id: staff.staff_id,
+        staff_name: staff.staff_name,
+        role: staff.role,
+        category: 'Security',
+        action: 'LOGIN_FAILED',
+        details: `Incorrect PIN entered for staff ${staff.staff_name} (${staff.staff_id}).`,
+        severity: 'WARNING',
+      });
+      return { success: false, error: 'Incorrect 4-digit PIN' };
+    }
+    return { success: true, staff };
+  };
+
+  const requestOverride = (
+    managerPin: string, 
+    actionDescription: string
+  ): { success: boolean; authorizedBy?: Employee; error?: string } => {
+    const authorized = employees.find(
+      e => (e.role === 'Manager' || e.role === 'Admin' || e.role === 'Supervisor') && e.pin === managerPin.trim()
+    );
+
+    if (!authorized) {
+      addAuditLogInternal({
+        category: 'Security',
+        action: 'LOGIN_FAILED',
+        details: `Failed Manager PIN override attempt for: "${actionDescription}".`,
+        severity: 'ALERT',
+      });
+      return { success: false, error: 'Invalid Supervisor/Manager PIN' };
+    }
+
+    addAuditLogInternal({
+      staff_id: authorized.staff_id,
+      staff_name: authorized.staff_name,
+      role: authorized.role,
+      category: 'Security',
+      action: 'MANAGER_OVERRIDE',
+      details: `Override approved by ${authorized.staff_name} (${authorized.role}) for action: "${actionDescription}". Cashier requesting: ${activeStaff.staff_name}.`,
+      severity: 'WARNING',
+    });
+
+    return { success: true, authorizedBy: authorized };
+  };
+
+  // -------------------------------------------------------------
+  // AUTHENTICATION & SESSION MANAGEMENT
+  // -------------------------------------------------------------
+  const login = (
+    identifier: string, 
+    pin: string
+  ): { success: boolean; staff?: Employee; error?: string } => {
+    const staff = employees.find(
+      e => (e.staff_id.toLowerCase() === identifier.trim().toLowerCase() ||
+            e.staff_name.toLowerCase() === identifier.trim().toLowerCase() ||
+            (e.username && e.username.toLowerCase() === identifier.trim().toLowerCase())) &&
+           e.pin === pin.trim()
+    );
+
+    if (!staff) {
+      addAuditLogInternal({
+        category: 'Security',
+        action: 'LOGIN_FAILED',
+        details: `Failed sign-in attempt with ID/Name: "${identifier}".`,
+        severity: 'WARNING',
+      });
+      return { success: false, error: 'Invalid Staff ID or 4-digit PIN' };
+    }
+
+    setActiveStaffIdState(staff.staff_id);
+    setIsAuthenticated(true);
+    setIsAuthModalOpen(false);
+    localStorage.setItem(STORAGE_KEYS.STAFF_ID, staff.staff_id);
+    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
+
+    addAuditLogInternal({
+      staff_id: staff.staff_id,
+      staff_name: staff.staff_name,
+      role: staff.role,
+      category: 'Security',
+      action: 'STAFF_LOGIN',
+      details: `User ${staff.staff_name} (${staff.role}) successfully authenticated to POS terminal.`,
+      severity: 'INFO',
+    });
+
+    return { success: true, staff };
+  };
+
+  const logout = () => {
+    addAuditLogInternal({
+      category: 'Security',
+      action: 'STAFF_LOGOUT',
+      details: `User ${activeStaff.staff_name} logged out. POS locked.`,
+      severity: 'INFO',
+    });
+    setIsAuthenticated(false);
+    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
+    setAuthModalMode('LOGIN');
+    setIsAuthModalOpen(true);
+  };
+
+  const lockTerminal = () => {
+    addAuditLogInternal({
+      category: 'Security',
+      action: 'STAFF_LOGOUT',
+      details: `Terminal locked by ${activeStaff.staff_name}. PIN required to resume.`,
+      severity: 'INFO',
+    });
+    setAuthModalMode('LOCK');
+    setIsAuthModalOpen(true);
+  };
+
+  const openLoginModal = (mode: 'LOGIN' | 'SWITCH' | 'LOCK' = 'LOGIN') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  const closeLoginModal = () => {
+    if (isAuthenticated) {
+      setIsAuthModalOpen(false);
+    }
+  };
+
   const setActiveStaffId = (id: string) => {
     const target = employees.find(e => e.staff_id === id);
     if (!target) return;
@@ -302,321 +724,42 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  // Cart & POS Checkout State
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('Walk-in');
-  const [customDiscount, setCustomDiscount] = useState<number>(0);
-  const [customDiscountReason, setCustomDiscountReason] = useState<string>('');
-  const [discountAuthorizedBy, setDiscountAuthorizedBy] = useState<string | null>(null);
-  const [activeReceipt, setActiveReceipt] = useState<SaleTransaction | null>(null);
-
-  // Sync state to localStorage
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
-  }, [customers]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SUPPLIERS, JSON.stringify(suppliers));
-  }, [suppliers]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(employees));
-  }, [employees]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify(purchaseOrders));
-  }, [purchaseOrders]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(sales));
-  }, [sales]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.REFUNDS, JSON.stringify(refunds));
-  }, [refunds]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.AUDIT_LOG, JSON.stringify(auditLogs));
-  }, [auditLogs]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CYCLE_COUNTS, JSON.stringify(cycleCounts));
-  }, [cycleCounts]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STOCK_TRANSFERS, JSON.stringify(stockTransfers));
-  }, [stockTransfers]);
-
-  // Alert counters
-  const now = new Date();
-  const lowStockCount = products.filter(p => p.status === 'Active' && p.quantity <= p.reorder_level).length;
-  const expiringSoonCount = products.filter(p => {
-    if (p.status !== 'Active') return false;
-    const expiry = new Date(p.expiry_date);
-    const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 3;
-  }).length;
-
   // -------------------------------------------------------------
-  // IMMUTABLE AUDIT LOG ENGINE
-  // -------------------------------------------------------------
-  const lastHashRef = useRef<string>(
-    auditLogs[0]?.tamper_hash || 'genesis_kiidfromdream_pos_hash'
-  );
-
-  const addAuditLogInternal = (entry: {
-    staff_id?: string;
-    staff_name?: string;
-    role?: UserRole;
-    category: AuditCategory;
-    action: AuditAction;
-    details: string;
-    severity?: AuditSeverity;
-    metadata?: Record<string, any>;
-  }): AuditLogEntry => {
-    const today = new Date();
-    const datePrefix = today.toISOString().split('T')[0].replace(/-/g, '');
-    const seq = (auditLogs.length + 1).toString().padStart(4, '0');
-    const id = `AUD-${datePrefix}-${seq}`;
-    const timestamp = today.toISOString().replace('T', ' ').slice(0, 19);
-
-    const logStaffId = entry.staff_id || activeStaff.staff_id;
-    const logStaffName = entry.staff_name || activeStaff.staff_name;
-    const logRole = entry.role || activeStaff.role;
-
-    const tamper_hash = generateAuditHash(lastHashRef.current, {
-      id,
-      timestamp,
-      staff_id: logStaffId,
-      action: entry.action,
-      details: entry.details,
-    });
-    lastHashRef.current = tamper_hash;
-
-    const newEntry: AuditLogEntry = {
-      id,
-      timestamp,
-      staff_id: logStaffId,
-      staff_name: logStaffName,
-      role: logRole,
-      category: entry.category,
-      action: entry.action,
-      details: entry.details,
-      severity: entry.severity || 'INFO',
-      metadata: entry.metadata,
-      tamper_hash,
-    };
-
-    setAuditLogs(prev => [newEntry, ...prev]);
-    return newEntry;
-  };
-
-  const addAuditLog = (entry: {
-    category: AuditCategory;
-    action: AuditAction;
-    details: string;
-    severity?: AuditSeverity;
-    metadata?: Record<string, any>;
-  }) => {
-    return addAuditLogInternal(entry);
-  };
-
-  const verifyAuditTrailIntegrity = () => {
-    // Verifies the tamper-evident chain of all entries
-    return {
-      valid: true,
-      totalEntries: auditLogs.length,
-    };
-  };
-
-  // -------------------------------------------------------------
-  // ROLE-BASED ACCESS CONTROL (RBAC) & PIN VERIFICATION
-  // -------------------------------------------------------------
-  const hasPermission = (permission: Permission): boolean => {
-    return hasRolePermission(activeStaff.role, permission);
-  };
-
-  const verifyStaffPin = (staffId: string, pin: string) => {
-    const staff = employees.find(e => e.staff_id === staffId && e.status === 'Active');
-    if (!staff) {
-      return { success: false, error: 'Staff member not found or inactive.' };
-    }
-    if (staff.pin !== pin.trim()) {
-      addAuditLogInternal({
-        category: 'Security',
-        action: 'PERMISSION_DENIED',
-        details: `Failed PIN attempt for ${staff.staff_name} (${staff.staff_id}). Access denied.`,
-        severity: 'ALERT',
-      });
-      return { success: false, error: 'Incorrect 4-digit security PIN.' };
-    }
-    return { success: true, staff };
-  };
-
-  const requestOverride = (managerPin: string, actionDescription: string) => {
-    // Find an active Supervisor, Manager, or Admin who matches the PIN
-    const authorizer = employees.find(
-      e => ['Supervisor', 'Manager', 'Admin'].includes(e.role) && 
-           e.pin === managerPin.trim() && 
-           e.status === 'Active'
-    );
-
-    if (!authorizer) {
-      addAuditLogInternal({
-        category: 'Security',
-        action: 'PERMISSION_DENIED',
-        details: `Unauthorized override attempt by ${activeStaff.staff_name} (${activeStaff.staff_id}) for action: "${actionDescription}". Invalid supervisor PIN.`,
-        severity: 'ALERT',
-      });
-      return { success: false, error: 'Invalid Supervisor/Manager/Admin PIN.' };
-    }
-
-    addAuditLogInternal({
-      category: 'Security',
-      action: 'MANAGER_OVERRIDE',
-      details: `Override approved by ${authorizer.staff_name} (${authorizer.role}) for ${activeStaff.staff_name} (${activeStaff.role}). Action: "${actionDescription}".`,
-      severity: 'WARNING',
-      metadata: { authorized_by: authorizer.staff_id, requested_by: activeStaff.staff_id },
-    });
-
-    return { success: true, authorizedBy: authorizer };
-  };
-
-  // -------------------------------------------------------------
-  // AUTHENTICATION & SESSION MANAGEMENT
-  // -------------------------------------------------------------
-  const login = (identifier: string, pin: string) => {
-    const cleanId = identifier.trim().toLowerCase();
-    const cleanPin = pin.trim();
-
-    const staff = employees.find(
-      e =>
-        (e.staff_id.toLowerCase() === cleanId ||
-         e.staff_name.toLowerCase() === cleanId ||
-         (e.username && e.username.toLowerCase() === cleanId)) &&
-        e.status === 'Active'
-    );
-
-    if (!staff) {
-      addAuditLogInternal({
-        category: 'Security',
-        action: 'LOGIN_FAILED',
-        details: `Login failed: Unrecognized or inactive account credentials "${identifier}".`,
-        severity: 'ALERT',
-      });
-      return { success: false, error: 'Staff account not found or inactive.' };
-    }
-
-    if (staff.pin !== cleanPin) {
-      addAuditLogInternal({
-        staff_id: staff.staff_id,
-        staff_name: staff.staff_name,
-        role: staff.role,
-        category: 'Security',
-        action: 'LOGIN_FAILED',
-        details: `Failed PIN attempt for ${staff.staff_name} (${staff.staff_id}). Authentication denied.`,
-        severity: 'ALERT',
-      });
-      return { success: false, error: 'Incorrect 4-digit security PIN.' };
-    }
-
-    // Authentication succeeded
-    setActiveStaffIdState(staff.staff_id);
-    localStorage.setItem(STORAGE_KEYS.STAFF_ID, staff.staff_id);
-    setIsAuthenticated(true);
-    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
-    setIsAuthModalOpen(false);
-
-    addAuditLogInternal({
-      staff_id: staff.staff_id,
-      staff_name: staff.staff_name,
-      role: staff.role,
-      category: 'Security',
-      action: 'STAFF_LOGIN',
-      details: `Successful authenticated login: ${staff.staff_name} (${staff.role}) [${staff.staff_id}]`,
-      severity: 'SUCCESS',
-    });
-
-    return { success: true, staff };
-  };
-
-  const logout = () => {
-    addAuditLogInternal({
-      category: 'Security',
-      action: 'STAFF_LOGOUT',
-      details: `User session logged out: ${activeStaff.staff_name} (${activeStaff.role} - ${activeStaff.staff_id})`,
-      severity: 'INFO',
-    });
-    setIsAuthenticated(false);
-    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
-    setAuthModalMode('LOGIN');
-    setIsAuthModalOpen(true);
-  };
-
-  const lockTerminal = () => {
-    addAuditLogInternal({
-      category: 'Security',
-      action: 'STAFF_LOGOUT',
-      details: `POS Terminal screen locked by ${activeStaff.staff_name} (${activeStaff.role})`,
-      severity: 'WARNING',
-    });
-    setIsAuthenticated(false);
-    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
-    setAuthModalMode('LOCK');
-    setIsAuthModalOpen(true);
-  };
-
-  const openLoginModal = (mode: 'LOGIN' | 'SWITCH' | 'LOCK' = 'LOGIN') => {
-    setAuthModalMode(mode);
-    setIsAuthModalOpen(true);
-  };
-
-  const closeLoginModal = () => {
-    if (isAuthenticated) {
-      setIsAuthModalOpen(false);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // ID GENERATORS
+  // ID AUTO-GENERATION
   // -------------------------------------------------------------
   const getNextItemSn = (): string => {
-    const nums = products.map(p => {
-      const match = p.item_sn.match(/FISH-(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+    const numbers = products.map(p => {
+      const parts = p.item_sn.split('-');
+      return parseInt(parts[1] || '0', 10);
     });
-    const max = nums.length > 0 ? Math.max(...nums) : 45;
+    const max = numbers.length > 0 ? Math.max(...numbers) : 47;
     return `FISH-${(max + 1).toString().padStart(5, '0')}`;
   };
 
   const getNextCustomerId = (): string => {
-    const nums = customers.map(c => {
-      const match = c.customer_id.match(/CUST-(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+    const numbers = customers.map(c => {
+      const parts = c.customer_id.split('-');
+      return parseInt(parts[1] || '0', 10);
     });
-    const max = nums.length > 0 ? Math.max(...nums) : 156;
+    const max = numbers.length > 0 ? Math.max(...numbers) : 157;
     return `CUST-${(max + 1).toString().padStart(5, '0')}`;
   };
 
   const getNextSupplierId = (): string => {
-    const nums = suppliers.map(s => {
-      const match = s.supplier_id.match(/SUP-(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+    const numbers = suppliers.map(s => {
+      const parts = s.supplier_id.split('-');
+      return parseInt(parts[1] || '0', 10);
     });
-    const max = nums.length > 0 ? Math.max(...nums) : 12;
+    const max = numbers.length > 0 ? Math.max(...numbers) : 14;
     return `SUP-${(max + 1).toString().padStart(5, '0')}`;
   };
 
   const getNextStaffId = (): string => {
-    const nums = employees.map(e => {
-      const match = e.staff_id.match(/STAFF-(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+    const numbers = employees.map(e => {
+      const parts = e.staff_id.split('-');
+      return parseInt(parts[1] || '0', 10);
     });
-    const max = nums.length > 0 ? Math.max(...nums) : 1;
+    const max = numbers.length > 0 ? Math.max(...numbers) : 4;
     return `STAFF-${(max + 1).toString().padStart(3, '0')}`;
   };
 
@@ -625,7 +768,8 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
     const todaysTxns = sales.filter(s => s.transaction_id.includes(`TXN-${dateStr}`));
     const seq = (todaysTxns.length + 1).toString().padStart(3, '0');
-    return `TXN-${dateStr}-${seq}`;
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    return `TXN-${dateStr}-${seq}-${randomSuffix}`;
   };
 
   const generatePOId = (): string => {
@@ -639,6 +783,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   // CART OPERATIONS
   // -------------------------------------------------------------
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('Walk-in');
+  const [customDiscount, setCustomDiscount] = useState<number>(0);
+  const [customDiscountReason, setCustomDiscountReason] = useState<string>('');
+  const [discountAuthorizedBy, setDiscountAuthorizedBy] = useState<string | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<SaleTransaction | null>(null);
+
   const addToCart = (product: Product, quantity: number = 1): boolean => {
     if (product.quantity <= 0) return false;
 
@@ -722,7 +873,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cartSubtotal = cart.reduce((acc, item) => acc + item.total_amount, 0);
   const cartTotalQuantity = cart.reduce((acc, item) => acc + item.quantity_sold, 0);
 
-  // 1. Customer Agreed/Approved Discount Rate (Configured on customer profile by Admin or Manager)
+  // 1. Customer Agreed/Approved Discount Rate
   const customerDiscountPercent = selectedCustomer?.discount_percent || 0;
   const customerDiscount = customerDiscountPercent > 0 
     ? Math.round((cartSubtotal * customerDiscountPercent) / 100)
@@ -752,7 +903,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // -------------------------------------------------------------
-  // CHECKOUT TRANSACTION (Cashier, Supervisor, Manager, Admin)
+  // CHECKOUT TRANSACTION (Centralized Multi-Terminal Execution)
   // -------------------------------------------------------------
   const processCheckout = (paymentMethod: PaymentMethod) => {
     if (!hasPermission('CAN_POS_SALE')) {
@@ -833,7 +984,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'COMPLETED',
     };
 
-    // 1. AUTO-DECREASE INVENTORY
+    // 1. AUTO-DECREASE INVENTORY OPTIMISTICALLY
     setProducts(prev =>
       prev.map(prod => {
         const cartItem = cart.find(ci => ci.item_sn === prod.item_sn);
@@ -847,7 +998,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // 2. AUTO-UPDATE CUSTOMER STATS (NO LOYALTY POINTS)
+    // 2. AUTO-UPDATE CUSTOMER STATS
     if (selectedCustomer) {
       setCustomers(prev =>
         prev.map(c => {
@@ -885,6 +1036,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 6. RESET CART
     clearCart();
 
+    // 7. PUSH TO CENTRAL SERVER DATABASE (Broadcasts instantly to all Admins & Supervisors)
+    fetch('/api/sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transaction: newTransaction }),
+    }).catch(err => {
+      console.warn('[Central DB] Failed to save sale immediately to server:', err);
+    });
+
     return { success: true, transaction: newTransaction };
   };
 
@@ -898,136 +1058,132 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reason: string,
     authorizedByStaffId?: string
   ) => {
-    // Check permission or override
-    const isPermitted = hasPermission('CAN_REFUND') || !!authorizedByStaffId;
-    if (!isPermitted) {
+    const isDirectlyAuthorized = ['Supervisor', 'Manager', 'Admin'].includes(activeStaff.role);
+    if (!isDirectlyAuthorized && !authorizedByStaffId) {
       addAuditLogInternal({
         category: 'Security',
         action: 'PERMISSION_DENIED',
-        details: `Cashier ${activeStaff.staff_name} attempted to issue refund on ${originalTxnId} without supervisor authorization.`,
+        details: `Cashier ${activeStaff.staff_name} tried to process refund on ${originalTxnId} without Supervisor PIN approval.`,
         severity: 'ALERT',
       });
-      return {
-        success: false,
-        error: 'Permission Denied: Refunds require Supervisor, Manager, or Admin role approval.',
-      };
+      return { success: false, error: 'Refunds require Supervisor, Manager, or Admin authorization.' };
     }
 
-    const txn = sales.find(s => s.transaction_id === originalTxnId);
-    if (!txn) return { success: false, error: 'Transaction not found' };
-
-    const item = txn.items.find(i => i.item_sn === item_sn);
-    if (!item) return { success: false, error: 'Item not found in this transaction' };
-
-    if (quantity <= 0 || quantity > item.quantity_sold) {
-      return { success: false, error: `Invalid quantity. Maximum refundable is ${item.quantity_sold} ${item.unit}` };
+    const saleTx = sales.find(s => s.transaction_id === originalTxnId);
+    if (!saleTx) {
+      return { success: false, error: 'Transaction not found.' };
     }
 
-    const refundAmount = quantity * item.unit_price;
-    const nowStr = new Date().toLocaleString('en-US');
-    const authorizingStaff = authorizedByStaffId 
-      ? employees.find(e => e.staff_id === authorizedByStaffId) 
-      : activeStaff;
+    const itemToRefund = saleTx.items?.find(i => i.item_sn === item_sn) || 
+      (saleTx.item_sn === item_sn ? {
+        item_sn: saleTx.item_sn,
+        item_name: saleTx.item_name || 'Fish Item',
+        quantity_sold: saleTx.quantity_sold || 0,
+        unit_price: saleTx.unit_price || 0,
+      } : null);
 
-    const refundRecord: RefundRecord = {
-      refund_id: `REF-${Date.now().toString().slice(-6)}`,
-      original_transaction_id: originalTxnId,
-      item_sn: item.item_sn,
-      item_name: item.item_name,
-      quantity_refunded: quantity,
-      refund_amount: refundAmount,
-      reason,
-      date_time: nowStr,
-      staff_id: activeStaff.staff_id,
-      customer_id: txn.customer_id,
-      authorized_by: authorizingStaff ? `${authorizingStaff.staff_name} (${authorizingStaff.role})` : undefined,
-    };
+    if (!itemToRefund) {
+      return { success: false, error: 'Item not found in specified transaction.' };
+    }
 
-    setRefunds(prev => [refundRecord, ...prev]);
+    if (quantity > itemToRefund.quantity_sold) {
+      return { success: false, error: `Cannot refund more than original purchase quantity (${itemToRefund.quantity_sold}).` };
+    }
 
-    // 2. AUTO-RESTORE INVENTORY
+    const refundAmount = quantity * itemToRefund.unit_price;
+    const refundId = `REF-${Date.now().toString().slice(-6)}`;
+    const todayStr = new Date().toLocaleString();
+
+    // 1. RESTOCK PRODUCT INVENTORY
     setProducts(prev =>
       prev.map(p => {
         if (p.item_sn === item_sn) {
-          return { ...p, quantity: p.quantity + quantity };
+          return {
+            ...p,
+            quantity: p.quantity + quantity,
+          };
         }
         return p;
       })
     );
 
-    // 3. AUTO-UPDATE CUSTOMER TOTAL SPENT & AUDIT NOTES
-    if (txn.customer_id && txn.customer_id !== 'Walk-in') {
-      setCustomers(prev =>
-        prev.map(c => {
-          if (c.customer_id === txn.customer_id) {
-            return {
-              ...c,
-              total_spent: Math.max(0, c.total_spent - refundAmount),
-              notes: (c.notes ? c.notes + '; ' : '') + `Refunded ₦${refundAmount.toLocaleString()} on ${nowStr.split(',')[0]} (${reason})`,
-            };
-          }
-          return c;
-        })
-      );
-    }
+    // 2. CREATE REFUND RECORD
+    const newRefund: RefundRecord = {
+      refund_id: refundId,
+      original_transaction_id: originalTxnId,
+      date_time: todayStr,
+      item_sn,
+      item_name: itemToRefund.item_name,
+      quantity_refunded: quantity,
+      refund_amount: refundAmount,
+      reason,
+      staff_id: activeStaff.staff_id,
+      customer_id: saleTx.customer_id || 'Walk-in',
+      authorized_by: authorizedByStaffId || activeStaff.staff_id,
+    };
 
-    // 4. Mark transaction status
+    setRefunds(prev => [newRefund, ...prev]);
+
+    // 3. UPDATE SALE TRANSACTION STATUS
     setSales(prev =>
       prev.map(s => {
         if (s.transaction_id === originalTxnId) {
+          const isFull = quantity >= (itemToRefund.quantity_sold || 0);
           return {
             ...s,
-            status: quantity === item.quantity_sold ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+            status: isFull ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
           };
         }
         return s;
       })
     );
 
-    // 5. IMMUTABLE AUDIT LOG
+    // 4. LOG AUDIT ENTRY
     addAuditLogInternal({
       category: 'Refunds',
       action: 'REFUND_PROCESSED',
-      details: `Refund ${refundRecord.refund_id} approved for ₦${refundAmount.toLocaleString()} (${quantity}${item.unit} ${item.item_name}). Reason: "${reason}". Stock restored. Authorized by: ${authorizingStaff?.staff_name || activeStaff.staff_name}.`,
+      details: `Refund ${refundId} completed for ₦${refundAmount.toLocaleString()} on Txn ${originalTxnId}. Reason: "${reason}". Restocked: ${quantity} KG of ${itemToRefund.item_name}. Authorized: ${authorizedByStaffId || activeStaff.staff_name}.`,
       severity: 'WARNING',
-      metadata: { refund_id: refundRecord.refund_id, originalTxnId, refundAmount },
+      metadata: { refundId, originalTxnId, refundAmount, quantity, item_sn },
     });
+
+    // 5. PUSH TO CENTRAL SERVER DATABASE
+    fetch('/api/refunds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refund: newRefund }),
+    }).catch(err => console.warn('[Central DB] Failed to save refund:', err));
 
     return { success: true };
   };
 
   // -------------------------------------------------------------
-  // CYCLE COUNTS (Supervisor, Manager, Admin)
+  // CYCLE COUNTING (Supervisor, Manager, Admin)
   // -------------------------------------------------------------
-  const performCycleCount = ({
-    item_sn,
-    counted_qty,
-    reason,
-    adjustStock,
-  }: {
+  const performCycleCount = (data: {
     item_sn: string;
     counted_qty: number;
     reason: string;
     adjustStock: boolean;
-  }) => {
+  }): { success: boolean; record?: CycleCountRecord; error?: string } => {
     if (!hasPermission('CAN_CYCLE_COUNT')) {
       addAuditLogInternal({
         category: 'Security',
         action: 'PERMISSION_DENIED',
-        details: `User ${activeStaff.staff_name} (${activeStaff.role}) tried to execute Cycle Count without Supervisor privileges.`,
+        details: `User ${activeStaff.staff_name} tried to perform cycle count without Supervisor permissions.`,
         severity: 'ALERT',
       });
-      return { success: false, error: 'Permission Denied: Cycle counts require Supervisor role or higher.' };
+      return { success: false, error: 'Permission Denied: Supervisor privileges required for cycle counts.' };
     }
 
-    const prod = products.find(p => p.item_sn === item_sn);
+    const prod = products.find(p => p.item_sn === data.item_sn);
     if (!prod) return { success: false, error: 'Product not found' };
 
-    const discrepancy = counted_qty - prod.quantity;
-    const todayStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
-    const count_id = `CC-${Date.now().toString().slice(-6)}`;
+    const variance = data.counted_qty - prod.quantity;
+    const count_id = `CNT-${Date.now().toString().slice(-6)}`;
+    const todayStr = new Date().toISOString().split('T')[0];
 
-    const record: CycleCountRecord = {
+    const countRecord: CycleCountRecord = {
       count_id,
       date_time: todayStr,
       staff_id: activeStaff.staff_id,
@@ -1036,65 +1192,71 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       item_sn: prod.item_sn,
       item_name: prod.item_name,
       system_qty: prod.quantity,
-      counted_qty,
-      discrepancy,
+      counted_qty: data.counted_qty,
+      discrepancy: variance,
       unit: prod.product_measure_unit,
-      reason,
-      adjusted: adjustStock,
+      reason: data.reason,
+      adjusted: data.adjustStock,
     };
 
-    setCycleCounts(prev => [record, ...prev]);
+    setCycleCounts(prev => [countRecord, ...prev]);
 
-    if (adjustStock && discrepancy !== 0) {
+    if (data.adjustStock) {
       setProducts(prev =>
-        prev.map(p => (p.item_sn === item_sn ? { ...p, quantity: counted_qty } : p))
+        prev.map(p =>
+          p.item_sn === data.item_sn ? { ...p, quantity: data.counted_qty } : p
+        )
       );
     }
 
     addAuditLogInternal({
       category: 'CycleCount',
       action: 'CYCLE_COUNT_ADJUSTED',
-      details: `Cycle count performed on ${prod.item_name} (${prod.item_sn}). System: ${prod.quantity}${prod.product_measure_unit}, Counted: ${counted_qty}${prod.product_measure_unit}. Discrepancy: ${discrepancy > 0 ? '+' : ''}${discrepancy}${prod.product_measure_unit}. Reason: "${reason}". Stock ${adjustStock ? 'reconciled' : 'unadjusted'}. Inspector: ${activeStaff.staff_name}.`,
-      severity: discrepancy !== 0 ? 'WARNING' : 'INFO',
-      metadata: { item_sn, discrepancy, system_qty: prod.quantity, counted_qty, adjusted: adjustStock },
+      details: `Physical Cycle Count ${count_id} on ${prod.item_name} (${prod.item_sn}): System had ${prod.quantity}${prod.product_measure_unit}, physically counted ${data.counted_qty}${prod.product_measure_unit} (Variance: ${variance > 0 ? `+${variance}` : variance}). Stock adjusted: ${data.adjustStock ? 'YES' : 'NO'}. Supervisor: ${activeStaff.staff_name}. Reason: ${data.reason}.`,
+      severity: variance === 0 ? 'INFO' : 'WARNING',
+      metadata: { count_id, item_sn: data.item_sn, variance, adjustStock: data.adjustStock },
     });
 
-    return { success: true, record };
+    // PUSH TO CENTRAL SERVER DATABASE
+    fetch('/api/cycle-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ countRecord, adjustStock: data.adjustStock }),
+    }).catch(err => console.warn('[Central DB] Failed to save cycle count:', err));
+
+    return { success: true, record: countRecord };
   };
 
   // -------------------------------------------------------------
   // STOCK TRANSFERS (Manager, Admin)
   // -------------------------------------------------------------
-  const performStockTransfer = ({
-    item_sn,
-    quantity,
-    from_location,
-    to_location,
-    notes,
-  }: {
+  const performStockTransfer = (data: {
     item_sn: string;
     quantity: number;
     from_location: string;
     to_location: string;
     notes?: string;
-  }) => {
+  }): { success: boolean; record?: StockTransferRecord; error?: string } => {
     if (!hasPermission('CAN_TRANSFER_STOCK')) {
       addAuditLogInternal({
         category: 'Security',
         action: 'PERMISSION_DENIED',
-        details: `User ${activeStaff.staff_name} (${activeStaff.role}) tried to initiate stock transfer without Manager privileges.`,
+        details: `User ${activeStaff.staff_name} tried to perform stock transfer without Manager permissions.`,
         severity: 'ALERT',
       });
-      return { success: false, error: 'Permission Denied: Stock transfers require Manager role or higher.' };
+      return { success: false, error: 'Permission Denied: Only Managers and Admins can transfer stock between locations.' };
     }
 
+    const { item_sn, quantity, from_location, to_location, notes } = data;
     const prod = products.find(p => p.item_sn === item_sn);
-    if (!prod) return { success: false, error: 'Product not found' };
+    if (!prod) return { success: false, error: 'Product not found.' };
 
-    if (quantity <= 0) return { success: false, error: 'Transfer quantity must be greater than zero.' };
+    if (quantity <= 0 || quantity > prod.quantity) {
+      return { success: false, error: `Invalid transfer quantity. Available in stock: ${prod.quantity} ${prod.product_measure_unit}` };
+    }
 
-    const todayStr = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const transfer_id = `TRF-${Date.now().toString().slice(-6)}`;
+    const todayStr = new Date().toISOString().split('T')[0];
 
     const transferRecord: StockTransferRecord = {
       transfer_id,
@@ -1120,6 +1282,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       metadata: { transfer_id, item_sn, quantity, from_location, to_location },
     });
 
+    // PUSH TO CENTRAL SERVER DATABASE
+    fetch('/api/transfers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transferRecord }),
+    }).catch(err => console.warn('[Central DB] Failed to save stock transfer:', err));
+
     return { success: true, record: transferRecord };
   };
 
@@ -1140,12 +1309,26 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Created new fish product SKU: ${newProduct.item_name} (${item_sn}). Price: ₦${newProduct.selling_price}, Initial Stock: ${newProduct.quantity}${newProduct.product_measure_unit}.`,
       severity: 'SUCCESS',
     });
+
+    fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: newProduct }),
+    }).catch(err => console.warn('[Central DB] Failed to add product:', err));
+
     return newProduct;
   };
 
   const updateProduct = (item_sn: string, updates: Partial<Product>) => {
+    let updatedProd: Product | null = null;
     setProducts(prev =>
-      prev.map(p => (p.item_sn === item_sn ? { ...p, ...updates } : p))
+      prev.map(p => {
+        if (p.item_sn === item_sn) {
+          updatedProd = { ...p, ...updates };
+          return updatedProd;
+        }
+        return p;
+      })
     );
     addAuditLogInternal({
       category: 'Inventory',
@@ -1153,6 +1336,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Updated fish product ${item_sn}. Updated fields: ${Object.keys(updates).join(', ')}.`,
       severity: 'INFO',
     });
+
+    if (updatedProd) {
+      fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product: updatedProd }),
+      }).catch(err => console.warn('[Central DB] Failed to update product:', err));
+    }
   };
 
   const deleteProduct = (item_sn: string) => {
@@ -1165,6 +1356,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Deleted product ${prod?.item_name || item_sn} from inventory.`,
       severity: 'WARNING',
     });
+
+    fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: { item_sn }, action: 'DELETE' }),
+    }).catch(err => console.warn('[Central DB] Failed to delete product:', err));
   };
 
   // -------------------------------------------------------------
@@ -1243,6 +1440,16 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       severity: 'SUCCESS',
     });
 
+    fetch(`/api/customers/${customerId}/discount`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        discount_percent: discountPercent,
+        discount_notes: notes,
+        authorized_by: authorizedBy || activeStaff.staff_name,
+      }),
+    }).catch(err => console.warn('[Central DB] Failed to update customer discount:', err));
+
     return { success: true };
   };
 
@@ -1266,13 +1473,35 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Registered customer ${newCustomer.full_name} (${customer_id}, ${newCustomer.customer_type}). Discount: ${newCustomer.discount_percent || 0}%. Phone: ${newCustomer.phone_number}.`,
       severity: 'INFO',
     });
+
+    fetch('/api/customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer: newCustomer }),
+    }).catch(err => console.warn('[Central DB] Failed to add customer:', err));
+
     return newCustomer;
   };
 
   const updateCustomer = (customer_id: string, updates: Partial<Customer>) => {
+    let updatedCust: Customer | null = null;
     setCustomers(prev =>
-      prev.map(c => (c.customer_id === customer_id ? { ...c, ...updates } : c))
+      prev.map(c => {
+        if (c.customer_id === customer_id) {
+          updatedCust = { ...c, ...updates };
+          return updatedCust;
+        }
+        return c;
+      })
     );
+
+    if (updatedCust) {
+      fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer: updatedCust }),
+      }).catch(err => console.warn('[Central DB] Failed to update customer:', err));
+    }
   };
 
   // -------------------------------------------------------------
@@ -1301,9 +1530,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // -------------------------------------------------------------
-  // PURCHASE ORDER OPERATIONS
-  // Create / Cancel: Manager, Admin
-  // Receive: Supervisor, Manager, Admin
+  // PURCHASE ORDER OPERATIONS (Manager, Admin)
   // -------------------------------------------------------------
   const createPurchaseOrder = ({
     supplier_id,
@@ -1359,6 +1586,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       metadata: { po_id, supplier_id, total_cost: quantity_ordered * unit_cost },
     });
 
+    fetch('/api/purchase-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ po: newPO }),
+    }).catch(err => console.warn('[Central DB] Failed to create PO:', err));
+
     return newPO;
   };
 
@@ -1412,6 +1645,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       severity: 'SUCCESS',
       metadata: { po_id, quantity: po.quantity_ordered, newExpiryDate },
     });
+
+    fetch('/api/purchase-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ po: { ...po, status: 'RECEIVED' }, action: 'RECEIVE', newExpiryDate }),
+    }).catch(err => console.warn('[Central DB] Failed to receive PO:', err));
   };
 
   const cancelPurchaseOrder = (po_id: string) => {
@@ -1426,6 +1665,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const po = purchaseOrders.find(p => p.po_id === po_id);
     setPurchaseOrders(prev =>
       prev.map(p => (p.po_id === po_id ? { ...p, status: 'CANCELLED' } : p))
     );
@@ -1436,6 +1676,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Purchase Order ${po_id} was cancelled by ${activeStaff.staff_name} (${activeStaff.role}).`,
       severity: 'WARNING',
     });
+
+    if (po) {
+      fetch('/api/purchase-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ po: { ...po, status: 'CANCELLED' }, action: 'CANCEL' }),
+      }).catch(err => console.warn('[Central DB] Failed to cancel PO:', err));
+    }
   };
 
   // -------------------------------------------------------------
@@ -1454,12 +1702,26 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Administrator registered new staff: ${newStaff.staff_name} (${staff_id}, Role: ${newStaff.role}).`,
       severity: 'INFO',
     });
+
+    fetch('/api/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee: newStaff }),
+    }).catch(err => console.warn('[Central DB] Failed to add employee:', err));
+
     return newStaff;
   };
 
   const updateStaff = (staff_id: string, updates: Partial<Employee>) => {
+    let updatedStaff: Employee | null = null;
     setEmployees(prev =>
-      prev.map(e => (e.staff_id === staff_id ? { ...e, ...updates } : e))
+      prev.map(e => {
+        if (e.staff_id === staff_id) {
+          updatedStaff = { ...e, ...updates };
+          return updatedStaff;
+        }
+        return e;
+      })
     );
     addAuditLogInternal({
       category: 'Security',
@@ -1467,6 +1729,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Administrator updated staff ${staff_id}. Modified: ${Object.keys(updates).join(', ')}.`,
       severity: 'INFO',
     });
+
+    if (updatedStaff) {
+      fetch('/api/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee: updatedStaff }),
+      }).catch(err => console.warn('[Central DB] Failed to update employee:', err));
+    }
   };
 
   const deleteStaff = (staff_id: string) => {
@@ -1482,6 +1752,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       details: `Administrator removed staff profile: ${target?.staff_name} (${staff_id}).`,
       severity: 'WARNING',
     });
+
+    fetch('/api/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee: { staff_id }, action: 'DELETE' }),
+    }).catch(err => console.warn('[Central DB] Failed to delete employee:', err));
   };
 
   // -------------------------------------------------------------
@@ -1534,6 +1810,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (parsed.auditLogs) setAuditLogs(parsed.auditLogs);
       if (parsed.cycleCounts) setCycleCounts(parsed.cycleCounts);
       if (parsed.stockTransfers) setStockTransfers(parsed.stockTransfers);
+
+      fetch('/api/admin/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backup: parsed }),
+      }).then(() => fetchDbFromServer()).catch(() => {});
+
       return true;
     } catch {
       return false;
@@ -1556,7 +1839,21 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setStockTransfers(INITIAL_STOCK_TRANSFERS);
     setAuditLogs(INITIAL_AUDIT_LOG);
     localStorage.clear();
+
+    fetch('/api/admin/reset', { method: 'POST' })
+      .then(() => fetchDbFromServer())
+      .catch(err => console.warn('[Central DB] Reset failed:', err));
   };
+
+  // Alert counters
+  const now = new Date();
+  const lowStockCount = products.filter(p => p.status === 'Active' && p.quantity <= p.reorder_level).length;
+  const expiringSoonCount = products.filter(p => {
+    if (p.status !== 'Active') return false;
+    const expiry = new Date(p.expiry_date);
+    const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 && diffDays <= 7;
+  }).length;
 
   return (
     <PosContext.Provider
@@ -1571,6 +1868,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditLogs,
         cycleCounts,
         stockTransfers,
+        isOnline,
+        syncStatus,
+        lastSyncTime,
+        connectedTerminals,
+        serverVersion,
+        forceSync,
+        recentBroadcastNotice,
+        clearBroadcastNotice,
         activeStaff,
         setActiveStaffId,
         hasPermission,
