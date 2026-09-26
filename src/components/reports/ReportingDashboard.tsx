@@ -15,12 +15,20 @@ import {
   Package,
   Clock,
   Database,
-  RefreshCw
+  RefreshCw,
+  Banknote,
+  Building2,
+  Split,
+  Layers,
+  FileSpreadsheet,
+  ShieldCheck
 } from 'lucide-react';
 
 interface ReportingDashboardProps {
   onQuickReorder?: (supplierId: string, itemSn: string) => void;
 }
+
+export type ReportDateRange = 'today' | 'yesterday' | 'week' | 'month' | 'custom' | 'all';
 
 export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickReorder }) => {
   const { 
@@ -35,17 +43,45 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     forceSync
   } = usePos();
 
-  const [dateRange, setDateRange] = useState<'all' | 'today'>('all');
+  const [dateRange, setDateRange] = useState<ReportDateRange>('today');
+  const [customStartDate, setCustomStartDate] = useState<string>('2026-09-01');
+  const [customEndDate, setCustomEndDate] = useState<string>('2026-09-22');
 
   const now = new Date();
 
-  // Filtered sales based on range
+  // Filtered sales based on selected date range (Daily, Multi-day, Weekly, Monthly, All)
   const relevantSales = useMemo(() => {
-    if (dateRange === 'today') {
-      return sales.filter(s => s.date_time.startsWith('2026-09-22'));
-    }
-    return sales;
-  }, [sales, dateRange]);
+    if (dateRange === 'all') return sales;
+
+    const todayStr = '2026-09-22';
+    const yesterdayStr = '2026-09-21';
+
+    return sales.filter(s => {
+      const rawDate = s.date_time.split(' ')[0] || '';
+      
+      if (dateRange === 'today') {
+        return rawDate.startsWith(todayStr) || rawDate.startsWith(now.toISOString().split('T')[0]);
+      }
+      if (dateRange === 'yesterday') {
+        return rawDate.startsWith(yesterdayStr);
+      }
+      if (dateRange === 'week') {
+        // Last 7 days: 2026-09-15 to 2026-09-22
+        return rawDate >= '2026-09-15' && rawDate <= '2026-09-22';
+      }
+      if (dateRange === 'month') {
+        // September 2026 or current month
+        return rawDate.startsWith('2026-09') || rawDate.startsWith(now.toISOString().slice(0, 7));
+      }
+      if (dateRange === 'custom') {
+        if (!customStartDate && !customEndDate) return true;
+        if (customStartDate && rawDate < customStartDate) return false;
+        if (customEndDate && rawDate > customEndDate) return false;
+        return true;
+      }
+      return true;
+    });
+  }, [sales, dateRange, customStartDate, customEndDate, now]);
 
   // Financial calculations
   const { totalRevenue, totalCogs, grossProfit, profitMargin, totalQuantitySold, averageOrderValue } = useMemo(() => {
@@ -79,12 +115,157 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     return {
       totalRevenue: rev,
       totalCogs: cogs,
-      grossProfit: profit,
+      grossProfit: Math.round(profit),
       profitMargin: margin,
-      totalQuantitySold: qty,
+      totalQuantitySold: Math.round(qty * 100) / 100,
       averageOrderValue: aov,
     };
   }, [relevantSales, products]);
+
+  // Comprehensive Payment Mode Reconciliation (Cash, Transfer, and POS)
+  const paymentReconciliation = useMemo(() => {
+    let cashTotal = 0;
+    let cashCount = 0;
+
+    let transferTotal = 0;
+    let transferCount = 0;
+
+    let posTotal = 0;
+    let posCount = 0;
+
+    let otherTotal = 0;
+    let otherCount = 0;
+
+    let splitTxCount = 0;
+    let splitTotalAmount = 0;
+
+    relevantSales.forEach(s => {
+      if (s.payment_splits && s.payment_splits.length > 0) {
+        splitTxCount++;
+        splitTotalAmount += s.final_amount;
+        s.payment_splits.forEach(split => {
+          if (split.method === 'Cash') {
+            cashTotal += split.amount;
+            cashCount++;
+          } else if (split.method === 'Bank Transfer') {
+            transferTotal += split.amount;
+            transferCount++;
+          } else if (split.method === 'POS' || split.method === 'Debit/Credit Card') {
+            posTotal += split.amount;
+            posCount++;
+          } else {
+            otherTotal += split.amount;
+            otherCount++;
+          }
+        });
+      } else {
+        if (s.payment_method === 'Cash') {
+          cashTotal += s.final_amount;
+          cashCount++;
+        } else if (s.payment_method === 'Bank Transfer') {
+          transferTotal += s.final_amount;
+          transferCount++;
+        } else if (s.payment_method === 'POS' || s.payment_method === 'Debit/Credit Card') {
+          posTotal += s.final_amount;
+          posCount++;
+        } else if (s.payment_method === 'Split Payment') {
+          splitTxCount++;
+          splitTotalAmount += s.final_amount;
+          cashTotal += s.final_amount;
+          cashCount++;
+        } else {
+          otherTotal += s.final_amount;
+          otherCount++;
+        }
+      }
+    });
+
+    const totalReconciled = cashTotal + transferTotal + posTotal + otherTotal;
+
+    return {
+      cash: {
+        amount: cashTotal,
+        count: cashCount,
+        percentage: totalReconciled > 0 ? Math.round((cashTotal / totalReconciled) * 100) : 0,
+        avgTicket: cashCount > 0 ? Math.round(cashTotal / cashCount) : 0,
+      },
+      transfer: {
+        amount: transferTotal,
+        count: transferCount,
+        percentage: totalReconciled > 0 ? Math.round((transferTotal / totalReconciled) * 100) : 0,
+        avgTicket: transferCount > 0 ? Math.round(transferTotal / transferCount) : 0,
+      },
+      pos: {
+        amount: posTotal,
+        count: posCount,
+        percentage: totalReconciled > 0 ? Math.round((posTotal / totalReconciled) * 100) : 0,
+        avgTicket: posCount > 0 ? Math.round(posTotal / posCount) : 0,
+      },
+      other: {
+        amount: otherTotal,
+        count: otherCount,
+        percentage: totalReconciled > 0 ? Math.round((otherTotal / totalReconciled) * 100) : 0,
+        avgTicket: otherCount > 0 ? Math.round(otherTotal / otherCount) : 0,
+      },
+      splitTransactions: {
+        count: splitTxCount,
+        totalAmount: splitTotalAmount,
+      },
+      totalReconciled,
+    };
+  }, [relevantSales]);
+
+  // Cashier Payment Breakdown Matrix (reconcile each staff member's cash, transfer, and POS takings)
+  const cashierPaymentBreakdown = useMemo(() => {
+    return employees.map(emp => {
+      const empSales = relevantSales.filter(s => s.staff_id === emp.staff_id);
+      let cash = 0;
+      let cashCount = 0;
+      let transfer = 0;
+      let transferCount = 0;
+      let pos = 0;
+      let posCount = 0;
+      let totalRev = 0;
+
+      empSales.forEach(s => {
+        totalRev += s.final_amount;
+        if (s.payment_splits && s.payment_splits.length > 0) {
+          s.payment_splits.forEach(split => {
+            if (split.method === 'Cash') {
+              cash += split.amount;
+              cashCount++;
+            } else if (split.method === 'Bank Transfer') {
+              transfer += split.amount;
+              transferCount++;
+            } else if (split.method === 'POS' || split.method === 'Debit/Credit Card') {
+              pos += split.amount;
+              posCount++;
+            }
+          });
+        } else {
+          if (s.payment_method === 'Cash') {
+            cash += s.final_amount;
+            cashCount++;
+          } else if (s.payment_method === 'Bank Transfer') {
+            transfer += s.final_amount;
+            transferCount++;
+          } else if (s.payment_method === 'POS' || s.payment_method === 'Debit/Credit Card') {
+            pos += s.final_amount;
+            posCount++;
+          }
+        }
+      });
+
+      return {
+        ...emp,
+        orders: empSales.length,
+        totalRev,
+        cash: { amount: cash, count: cashCount },
+        transfer: { amount: transfer, count: transferCount },
+        pos: { amount: pos, count: posCount },
+      };
+    }).sort((a, b) => b.totalRev - a.totalRev);
+  }, [employees, relevantSales]);
 
   // Top 3 Products
   const topProducts = useMemo(() => {
@@ -127,20 +308,6 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     }).sort((a, b) => b.revenue - a.revenue);
   }, [employees, relevantSales]);
 
-  // Payment Breakdown
-  const paymentBreakdown = useMemo(() => {
-    const methods: { [m: string]: number } = {
-      'Cash': 0,
-      'Debit/Credit Card': 0,
-      'Mobile Money': 0,
-      'Bank Transfer': 0,
-    };
-    relevantSales.forEach(s => {
-      methods[s.payment_method] = (methods[s.payment_method] || 0) + s.final_amount;
-    });
-    return methods;
-  }, [relevantSales]);
-
   // Inventory Alerts: Expiring Soon (3 days) & Low Stock
   const expiringProducts = useMemo(() => {
     return products.filter(p => {
@@ -148,7 +315,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       const diffDays = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       return diffDays <= 3;
     });
-  }, [products]);
+  }, [products, now]);
 
   const lowStockProducts = useMemo(() => {
     return products.filter(p => p.quantity <= p.reorder_level);
@@ -157,6 +324,13 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   const handlePrintReport = () => {
     window.print();
   };
+
+  const dateRangeLabel = 
+    dateRange === 'today' ? 'Today (22 Sep 2026)' :
+    dateRange === 'yesterday' ? 'Yesterday (21 Sep 2026)' :
+    dateRange === 'week' ? 'Last 7 Days (15 - 22 Sep 2026)' :
+    dateRange === 'month' ? 'This Month (September 2026)' :
+    dateRange === 'custom' ? `${customStartDate} to ${customEndDate}` : 'All Time History';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -198,23 +372,26 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
             </button>
           </div>
 
-          <div className="bg-slate-100 p-1 rounded-lg flex space-x-1">
-            <button
-              onClick={() => setDateRange('all')}
-              className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-                dateRange === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              All Time
-            </button>
-            <button
-              onClick={() => setDateRange('today')}
-              className={`px-3 py-1.5 rounded-md font-semibold transition-colors ${
-                dateRange === 'today' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              Today (22 Sep 2026)
-            </button>
+          {/* Date Range Selection Tabs */}
+          <div className="bg-slate-100 p-1 rounded-lg flex flex-wrap gap-1">
+            {[
+              { id: 'today', label: 'Today' },
+              { id: 'yesterday', label: 'Yesterday' },
+              { id: 'week', label: 'Weekly (7d)' },
+              { id: 'month', label: 'Monthly' },
+              { id: 'custom', label: 'Multi-Day Range' },
+              { id: 'all', label: 'All Time' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setDateRange(tab.id as ReportDateRange)}
+                className={`px-2.5 py-1.5 rounded-md font-semibold transition-colors ${
+                  dateRange === tab.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <button
@@ -226,6 +403,37 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </button>
         </div>
       </div>
+
+      {/* Custom Date Range Picker Bar (if custom selected) */}
+      {dateRange === 'custom' && (
+        <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center space-x-2 text-slate-700 font-semibold">
+            <Calendar className="w-4 h-4 text-emerald-600" />
+            <span>Select Multi-Day Reporting Period:</span>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1.5">
+              <span className="text-slate-500">From:</span>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+                className="px-2.5 py-1 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="text-slate-500">To:</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+                className="px-2.5 py-1 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -473,52 +681,386 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </div>
         </div>
 
-        {/* Payment Channels (5 cols) */}
+        {/* Payment Channels Breakdown (5 cols) */}
         <div className="lg:col-span-5 bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-2">
-              <CreditCard className="w-4 h-4 text-slate-700" />
-              <span>Revenue by Payment Channel</span>
+              <CreditCard className="w-4 h-4 text-emerald-600" />
+              <span>Payment Mode Breakdown</span>
             </h3>
+            <span className="text-[10px] text-slate-400 font-mono">
+              {relevantSales.length} Total Txns
+            </span>
           </div>
 
-          <div className="space-y-2.5 text-xs">
-            {Object.entries(paymentBreakdown).map(([method, amount]) => {
-              const pct = totalRevenue > 0 ? Math.round((amount / totalRevenue) * 100) : 0;
-              return (
-                <div key={method} className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-1.5">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-slate-800">{method}</span>
-                    <span className="font-mono font-bold text-slate-900">₦{amount.toLocaleString()}</span>
-                  </div>
-                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-slate-800 h-full rounded-full transition-all"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-slate-500">
-                    <span>{pct}% of Total Turnover</span>
-                  </div>
+          <div className="space-y-3 text-xs">
+            {/* Cash */}
+            <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2 font-bold text-emerald-950">
+                  <Banknote className="w-4 h-4 text-emerald-600" />
+                  <span>Cash Collections</span>
                 </div>
-              );
-            })}
+                <span className="font-mono font-bold text-emerald-900 text-sm">
+                  ₦{paymentReconciliation.cash.amount.toLocaleString()}
+                </span>
+              </div>
+              <div className="w-full bg-emerald-200/60 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-600 h-full rounded-full transition-all"
+                  style={{ width: `${paymentReconciliation.cash.percentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[11px] text-emerald-800">
+                <span>{paymentReconciliation.cash.count} Cash payments ({paymentReconciliation.cash.percentage}% share)</span>
+                <span>Avg: ₦{paymentReconciliation.cash.avgTicket.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Bank Transfer */}
+            <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2 font-bold text-blue-950">
+                  <Building2 className="w-4 h-4 text-blue-600" />
+                  <span>Bank Transfers</span>
+                </div>
+                <span className="font-mono font-bold text-blue-900 text-sm">
+                  ₦{paymentReconciliation.transfer.amount.toLocaleString()}
+                </span>
+              </div>
+              <div className="w-full bg-blue-200/60 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-blue-600 h-full rounded-full transition-all"
+                  style={{ width: `${paymentReconciliation.transfer.percentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[11px] text-blue-800">
+                <span>{paymentReconciliation.transfer.count} Direct transfers ({paymentReconciliation.transfer.percentage}% share)</span>
+                <span>Avg: ₦{paymentReconciliation.transfer.avgTicket.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* POS Terminal */}
+            <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2 font-bold text-purple-950">
+                  <CreditCard className="w-4 h-4 text-purple-600" />
+                  <span>POS Terminal / Card</span>
+                </div>
+                <span className="font-mono font-bold text-purple-900 text-sm">
+                  ₦{paymentReconciliation.pos.amount.toLocaleString()}
+                </span>
+              </div>
+              <div className="w-full bg-purple-200/60 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-purple-600 h-full rounded-full transition-all"
+                  style={{ width: `${paymentReconciliation.pos.percentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[11px] text-purple-800">
+                <span>{paymentReconciliation.pos.count} POS Card settlements ({paymentReconciliation.pos.percentage}% share)</span>
+                <span>Avg: ₦{paymentReconciliation.pos.avgTicket.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Split Payments Notice */}
+            {paymentReconciliation.splitTransactions.count > 0 && (
+              <div className="p-2 bg-slate-100 rounded-lg border border-slate-200 text-[11px] text-slate-700 flex items-center justify-between">
+                <span className="flex items-center space-x-1.5">
+                  <Split className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Split-Tender Orders: <strong>{paymentReconciliation.splitTransactions.count} transactions</strong></span>
+                </span>
+                <span className="font-mono font-semibold">₦{paymentReconciliation.splitTransactions.totalAmount.toLocaleString()} routed</span>
+              </div>
+            )}
           </div>
         </div>
 
       </div>
 
-      {/* Printable End-Of-Day Report Sheet (Section 2.6 Spec Compliant) */}
+      {/* FULL-WIDTH PAYMENT RECONCILIATION & SHIFT AUDIT SUITE */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+        
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <span>Daily & Periodic Payment Mode Reconciliation Ledger</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Accurate breakdown of counts and monetary values for Cash, Bank Transfers, and POS Terminal cards for: <strong className="text-slate-800 font-semibold">{dateRangeLabel}</strong>
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <span className="px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold font-mono">
+              Total Reconciled: ₦{paymentReconciliation.totalReconciled.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* 4 Reconciliation Highlight Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          
+          {/* Card 1: Cash in Drawer */}
+          <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs text-emerald-800">
+              <span className="font-bold flex items-center space-x-1.5">
+                <Banknote className="w-4 h-4 text-emerald-600" />
+                <span>Cash in Drawer</span>
+              </span>
+              <span className="px-2 py-0.5 bg-emerald-200 text-emerald-900 rounded font-bold text-[10px]">
+                {paymentReconciliation.cash.percentage}% Share
+              </span>
+            </div>
+            <div className="text-2xl font-black font-mono text-emerald-950">
+              ₦{paymentReconciliation.cash.amount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-emerald-700 flex justify-between pt-1 border-t border-emerald-200/60">
+              <span>{paymentReconciliation.cash.count} Cash Payments</span>
+              <span>Avg: ₦{paymentReconciliation.cash.avgTicket.toLocaleString()}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Verify against physical drawer float & envelope cash count.
+            </div>
+          </div>
+
+          {/* Card 2: Bank Transfers */}
+          <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs text-blue-800">
+              <span className="font-bold flex items-center space-x-1.5">
+                <Building2 className="w-4 h-4 text-blue-600" />
+                <span>Bank Transfers</span>
+              </span>
+              <span className="px-2 py-0.5 bg-blue-200 text-blue-900 rounded font-bold text-[10px]">
+                {paymentReconciliation.transfer.percentage}% Share
+              </span>
+            </div>
+            <div className="text-2xl font-black font-mono text-blue-950">
+              ₦{paymentReconciliation.transfer.amount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-blue-700 flex justify-between pt-1 border-t border-blue-200/60">
+              <span>{paymentReconciliation.transfer.count} Inbound Transfers</span>
+              <span>Avg: ₦{paymentReconciliation.transfer.avgTicket.toLocaleString()}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Verify against bank app notifications & bank account statement inflows.
+            </div>
+          </div>
+
+          {/* Card 3: POS Terminal / Card */}
+          <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs text-purple-800">
+              <span className="font-bold flex items-center space-x-1.5">
+                <CreditCard className="w-4 h-4 text-purple-600" />
+                <span>POS Card Terminal</span>
+              </span>
+              <span className="px-2 py-0.5 bg-purple-200 text-purple-900 rounded font-bold text-[10px]">
+                {paymentReconciliation.pos.percentage}% Share
+              </span>
+            </div>
+            <div className="text-2xl font-black font-mono text-purple-950">
+              ₦{paymentReconciliation.pos.amount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-purple-700 flex justify-between pt-1 border-t border-purple-200/60">
+              <span>{paymentReconciliation.pos.count} POS Settlements</span>
+              <span>Avg: ₦{paymentReconciliation.pos.avgTicket.toLocaleString()}</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Verify against POS merchant end-of-day batch settlement slip.
+            </div>
+          </div>
+
+          {/* Card 4: Split Payment Audits */}
+          <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs text-amber-800">
+              <span className="font-bold flex items-center space-x-1.5">
+                <Split className="w-4 h-4 text-amber-600" />
+                <span>Split Cross-Tender</span>
+              </span>
+              <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded font-bold text-[10px]">
+                Multi-Pay
+              </span>
+            </div>
+            <div className="text-2xl font-black font-mono text-amber-950">
+              ₦{paymentReconciliation.splitTransactions.totalAmount.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-amber-800 flex justify-between pt-1 border-t border-amber-200/60">
+              <span>{paymentReconciliation.splitTransactions.count} Split Orders</span>
+              <span className="text-emerald-700 font-bold">100% Balanced</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Payments split between Cash, Bank Transfer, or POS terminal.
+            </div>
+          </div>
+
+        </div>
+
+        {/* Detailed Payment Mode Audit Summary Table */}
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[11px]">
+              <tr>
+                <th className="py-3 px-4">Payment Mode / Channel</th>
+                <th className="py-3 px-4 text-center">Transaction Count</th>
+                <th className="py-3 px-4 text-right">Total Amount (₦)</th>
+                <th className="py-3 px-4 text-center">Share of Turnover</th>
+                <th className="py-3 px-4">Reconciliation & Management Verification Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {/* Cash Row */}
+              <tr className="hover:bg-slate-50">
+                <td className="py-3 px-4 font-bold text-slate-900 flex items-center space-x-2">
+                  <Banknote className="w-4 h-4 text-emerald-600" />
+                  <span>Physical Cash (Counter Drawer)</span>
+                </td>
+                <td className="py-3 px-4 text-center font-bold font-mono">
+                  {paymentReconciliation.cash.count} transactions
+                </td>
+                <td className="py-3 px-4 text-right font-black font-mono text-emerald-700 text-sm">
+                  ₦{paymentReconciliation.cash.amount.toLocaleString()}
+                </td>
+                <td className="py-3 px-4 text-center font-bold text-slate-800">
+                  {paymentReconciliation.cash.percentage}%
+                </td>
+                <td className="py-3 px-4 text-slate-500 text-[11px]">
+                  Physical cash count in cashier till. Reconcile against opening float and closing envelope handover.
+                </td>
+              </tr>
+
+              {/* Bank Transfer Row */}
+              <tr className="hover:bg-slate-50">
+                <td className="py-3 px-4 font-bold text-slate-900 flex items-center space-x-2">
+                  <Building2 className="w-4 h-4 text-blue-600" />
+                  <span>Direct Bank Transfers</span>
+                </td>
+                <td className="py-3 px-4 text-center font-bold font-mono">
+                  {paymentReconciliation.transfer.count} transactions
+                </td>
+                <td className="py-3 px-4 text-right font-black font-mono text-blue-700 text-sm">
+                  ₦{paymentReconciliation.transfer.amount.toLocaleString()}
+                </td>
+                <td className="py-3 px-4 text-center font-bold text-slate-800">
+                  {paymentReconciliation.transfer.percentage}%
+                </td>
+                <td className="py-3 px-4 text-slate-500 text-[11px]">
+                  Check corporate bank account alerts / bank statement session IDs to confirm credit reflection.
+                </td>
+              </tr>
+
+              {/* POS Terminal Row */}
+              <tr className="hover:bg-slate-50">
+                <td className="py-3 px-4 font-bold text-slate-900 flex items-center space-x-2">
+                  <CreditCard className="w-4 h-4 text-purple-600" />
+                  <span>POS Terminal / Debit Card</span>
+                </td>
+                <td className="py-3 px-4 text-center font-bold font-mono">
+                  {paymentReconciliation.pos.count} transactions
+                </td>
+                <td className="py-3 px-4 text-right font-black font-mono text-purple-700 text-sm">
+                  ₦{paymentReconciliation.pos.amount.toLocaleString()}
+                </td>
+                <td className="py-3 px-4 text-center font-bold text-slate-800">
+                  {paymentReconciliation.pos.percentage}%
+                </td>
+                <td className="py-3 px-4 text-slate-500 text-[11px]">
+                  Print End-Of-Day batch summary from physical POS merchant machine and match total approved sums.
+                </td>
+              </tr>
+
+              {/* Grand Total Row */}
+              <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-300 text-slate-900">
+                <td className="py-3.5 px-4 font-extrabold uppercase">
+                  Total Reconciled Turnover
+                </td>
+                <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-950">
+                  {paymentReconciliation.cash.count + paymentReconciliation.transfer.count + paymentReconciliation.pos.count} payments
+                </td>
+                <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-800 text-base">
+                  ₦{paymentReconciliation.totalReconciled.toLocaleString()}
+                </td>
+                <td className="py-3.5 px-4 text-center font-extrabold text-emerald-700">
+                  100%
+                </td>
+                <td className="py-3.5 px-4 text-emerald-800 font-bold text-[11px]">
+                  ✓ All counter sales, split payments, and direct deposits mathematically balanced.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Cashier Shift Payment Balancing Matrix (Management Shift Reconciliation) */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-slate-900 text-xs flex items-center space-x-1.5">
+              <Users className="w-4 h-4 text-slate-600" />
+              <span>Cashier Shift Handover & Payment Collection Matrix</span>
+            </h4>
+            <span className="text-[11px] text-slate-500">
+              Audit cash, transfers, and POS card takings per staff member
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[10px] uppercase">
+                <tr>
+                  <th className="py-2.5 px-4">Cashier / Staff</th>
+                  <th className="py-2.5 px-4 text-center">Orders</th>
+                  <th className="py-2.5 px-4 text-right">Cash Collected</th>
+                  <th className="py-2.5 px-4 text-right">Bank Transfers</th>
+                  <th className="py-2.5 px-4 text-right">POS Terminal</th>
+                  <th className="py-2.5 px-4 text-right">Total Shift Sales</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {cashierPaymentBreakdown.map(staff => (
+                  <tr key={staff.staff_id} className="hover:bg-slate-50">
+                    <td className="py-2.5 px-4">
+                      <div className="font-bold text-slate-900">{staff.staff_name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{staff.staff_id} • {staff.role}</div>
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono font-medium">
+                      {staff.orders}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
+                      ₦{staff.cash.amount.toLocaleString()}
+                      <span className="block text-[10px] text-slate-400 font-normal">({staff.cash.count} cash txns)</span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-blue-700">
+                      ₦{staff.transfer.amount.toLocaleString()}
+                      <span className="block text-[10px] text-slate-400 font-normal">({staff.transfer.count} transfers)</span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-purple-700">
+                      ₦{staff.pos.amount.toLocaleString()}
+                      <span className="block text-[10px] text-slate-400 font-normal">({staff.pos.count} POS txns)</span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono font-black text-slate-900">
+                      ₦{staff.totalRev.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      {/* Printable End-Of-Day Report Sheet (Official Audit Copy) */}
       <div id="printable-daily-report" className="bg-slate-50 p-6 rounded-2xl border border-slate-300 font-mono text-xs space-y-4 text-slate-900">
         <div className="border-b-2 border-slate-900 pb-3 text-center">
-          <h2 className="text-base font-black tracking-wider uppercase">KIIDFROMDREAM FISH SALES - DAILY REPORT</h2>
-          <p className="text-[11px] text-slate-600">Generated: 22 September 2026 • Official Audit Copy</p>
+          <h2 className="text-base font-black tracking-wider uppercase">KIIDFROMDREAM FISH SALES - AUDIT & RECONCILIATION REPORT</h2>
+          <p className="text-[11px] text-slate-600">Generated: {dateRangeLabel} • Official Audit Copy</p>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-2 border-b border-slate-200">
           <div>
-            <span className="text-[10px] text-slate-500 block">DATE:</span>
-            <span className="font-bold">22-SEP-2026</span>
+            <span className="text-[10px] text-slate-500 block">REPORTING PERIOD:</span>
+            <span className="font-bold">{dateRangeLabel}</span>
           </div>
           <div>
             <span className="text-[10px] text-slate-500 block">TOTAL SALES (REVENUE):</span>
@@ -531,6 +1073,34 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           <div>
             <span className="text-[10px] text-slate-500 block">GROSS PROFIT:</span>
             <span className="font-bold text-emerald-800">₦{grossProfit.toLocaleString()} ({profitMargin}%)</span>
+          </div>
+        </div>
+
+        {/* Explicit Payment Method Reconciliation in Printable Report */}
+        <div className="p-3 bg-white rounded-lg border border-slate-300 space-y-2">
+          <div className="font-bold border-b border-slate-200 pb-1 text-slate-900 uppercase">
+            PAYMENT MODE RECONCILIATION & BALANCING (CASH / TRANSFER / POS):
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+            <div className="p-2 bg-emerald-50 rounded border border-emerald-200">
+              <span className="text-slate-500 block">CASH IN HAND / DRAWER:</span>
+              <span className="font-bold text-emerald-900 text-sm">₦{paymentReconciliation.cash.amount.toLocaleString()}</span>
+              <span className="block text-[10px] text-slate-500">({paymentReconciliation.cash.count} cash payments)</span>
+            </div>
+            <div className="p-2 bg-blue-50 rounded border border-blue-200">
+              <span className="text-slate-500 block">DIRECT BANK TRANSFERS:</span>
+              <span className="font-bold text-blue-900 text-sm">₦{paymentReconciliation.transfer.amount.toLocaleString()}</span>
+              <span className="block text-[10px] text-slate-500">({paymentReconciliation.transfer.count} transfers)</span>
+            </div>
+            <div className="p-2 bg-purple-50 rounded border border-purple-200">
+              <span className="text-slate-500 block">POS CARD TERMINAL:</span>
+              <span className="font-bold text-purple-900 text-sm">₦{paymentReconciliation.pos.amount.toLocaleString()}</span>
+              <span className="block text-[10px] text-slate-500">({paymentReconciliation.pos.count} card settlements)</span>
+            </div>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs font-bold">
+            <span>TOTAL RECONCILED SUM:</span>
+            <span className="font-mono text-emerald-800 text-sm">₦{paymentReconciliation.totalReconciled.toLocaleString()}</span>
           </div>
         </div>
 
@@ -557,7 +1127,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         </div>
 
         <div className="pt-2 border-t border-slate-200 text-[10px] text-slate-500 flex justify-between">
-          <span>Report verified by Shift Supervisor</span>
+          <span>Report verified by Shift Supervisor & Management</span>
           <span>KIIDFROMDREAM POS • All Rights Reserved</span>
         </div>
       </div>

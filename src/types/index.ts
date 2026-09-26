@@ -27,10 +27,19 @@ export interface Product {
 
 export type PaymentMethod = 
   | 'Cash' 
+  | 'Bank Transfer' 
+  | 'POS' 
   | 'Debit/Credit Card' 
   | 'Mobile Money' 
-  | 'Bank Transfer' 
-  | 'Check';
+  | 'Check'
+  | 'Split Payment';
+
+export interface SplitPaymentDetail {
+  method: 'Cash' | 'Bank Transfer' | 'POS' | 'Debit/Credit Card' | 'Mobile Money' | 'Check';
+  amount: number;
+  reference?: string;
+  notes?: string;
+}
 
 export type CustomerType = 
   | 'Retail' 
@@ -62,6 +71,9 @@ export interface SaleTransaction {
   discount_authorized_by?: string;
   final_amount: number;
   payment_method: PaymentMethod;
+  payment_splits?: SplitPaymentDetail[];
+  amount_paid?: number;
+  change_due?: number;
   staff_id: string;
   customer_id: string;
   status: 'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';

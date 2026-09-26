@@ -8,6 +8,7 @@ import {
   SaleTransaction,
   SaleItem,
   PaymentMethod,
+  SplitPaymentDetail,
   RefundRecord,
   UserRole,
   AuditLogEntry,
@@ -109,7 +110,12 @@ interface PosContextType {
   cartFinalTotal: number;
   
   // Actions
-  processCheckout: (paymentMethod: PaymentMethod) => { success: boolean; transaction?: SaleTransaction; error?: string };
+  processCheckout: (
+    paymentMethod: PaymentMethod,
+    paymentSplits?: SplitPaymentDetail[],
+    amountPaid?: number,
+    changeDue?: number
+  ) => { success: boolean; transaction?: SaleTransaction; error?: string };
   processRefund: (originalTxnId: string, item_sn: string, quantity: number, reason: string, authorizedByStaffId?: string) => { success: boolean; error?: string };
   
   // Cycle Counts (Supervisor)
@@ -792,23 +798,25 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addToCart = (product: Product, quantity: number = 1): boolean => {
     if (product.quantity <= 0) return false;
+    const cleanAddQty = Math.round(quantity * 1000) / 1000;
+    if (cleanAddQty <= 0) return false;
 
     setCart(prev => {
       const existing = prev.find(item => item.item_sn === product.item_sn);
       if (existing) {
-        const newQty = existing.quantity_sold + quantity;
+        const newQty = Math.round((existing.quantity_sold + cleanAddQty) * 1000) / 1000;
         if (newQty > product.quantity) return prev;
         return prev.map(item =>
           item.item_sn === product.item_sn
             ? {
                 ...item,
                 quantity_sold: newQty,
-                total_amount: newQty * item.unit_price,
+                total_amount: Math.round(newQty * item.unit_price),
               }
             : item
         );
       } else {
-        const initialQty = Math.min(quantity, product.quantity);
+        const initialQty = Math.min(cleanAddQty, product.quantity);
         return [
           ...prev,
           {
@@ -817,7 +825,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             quantity_sold: initialQty,
             unit: product.product_measure_unit,
             unit_price: product.selling_price,
-            total_amount: initialQty * product.selling_price,
+            total_amount: Math.round(initialQty * product.selling_price),
             cost_price: product.item_cost,
             maxAvailable: product.quantity,
           },
@@ -840,13 +848,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return false;
     }
 
+    const cleanQty = Math.round(quantity * 1000) / 1000;
+
     setCart(prev =>
       prev.map(item =>
         item.item_sn === item_sn
           ? {
               ...item,
-              quantity_sold: quantity,
-              total_amount: quantity * item.unit_price,
+              quantity_sold: cleanQty,
+              total_amount: Math.round(cleanQty * item.unit_price),
             }
           : item
       )
@@ -871,7 +881,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const selectedCustomer = customers.find(c => c.customer_id === selectedCustomerId);
 
   const cartSubtotal = cart.reduce((acc, item) => acc + item.total_amount, 0);
-  const cartTotalQuantity = cart.reduce((acc, item) => acc + item.quantity_sold, 0);
+  const cartTotalQuantity = Math.round(cart.reduce((acc, item) => acc + item.quantity_sold, 0) * 1000) / 1000;
 
   // 1. Customer Agreed/Approved Discount Rate
   const customerDiscountPercent = selectedCustomer?.discount_percent || 0;
@@ -905,7 +915,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   // CHECKOUT TRANSACTION (Centralized Multi-Terminal Execution)
   // -------------------------------------------------------------
-  const processCheckout = (paymentMethod: PaymentMethod) => {
+  const processCheckout = (
+    paymentMethod: PaymentMethod,
+    paymentSplits?: SplitPaymentDetail[],
+    amountPaid?: number,
+    changeDue?: number
+  ) => {
     if (!hasPermission('CAN_POS_SALE')) {
       addAuditLogInternal({
         category: 'Security',
@@ -979,19 +994,23 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : (customerDiscount > 0 ? (selectedCustomer?.discount_notes || 'Manager Approved') : undefined),
       final_amount: cartFinalTotal,
       payment_method: paymentMethod,
+      payment_splits: paymentSplits && paymentSplits.length > 0 ? paymentSplits : undefined,
+      amount_paid: amountPaid,
+      change_due: changeDue,
       staff_id: activeStaff.staff_id,
       customer_id: selectedCustomerId,
       status: 'COMPLETED',
     };
 
-    // 1. AUTO-DECREASE INVENTORY OPTIMISTICALLY
+    // 1. AUTO-DECREASE INVENTORY OPTIMISTICALLY (Precision decimal rounded)
     setProducts(prev =>
       prev.map(prod => {
         const cartItem = cart.find(ci => ci.item_sn === prod.item_sn);
         if (cartItem) {
+          const remainingQty = Math.max(0, Math.round((prod.quantity - cartItem.quantity_sold) * 1000) / 1000);
           return {
             ...prod,
-            quantity: Math.max(0, prod.quantity - cartItem.quantity_sold),
+            quantity: remainingQty,
           };
         }
         return prod;
@@ -1021,13 +1040,23 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 3. LOG TRANSACTION IN SALES
     setSales(prev => [newTransaction, ...prev]);
 
+    // Format audit summary
+    const splitSummary = paymentSplits && paymentSplits.length > 0
+      ? ` [Split: ${paymentSplits.map(s => `${s.method} ₦${s.amount.toLocaleString()}`).join(' + ')}]`
+      : '';
+
     // 4. LOG IN IMMUTABLE AUDIT TRAIL
     addAuditLogInternal({
       category: 'Sales',
       action: 'SALE_COMPLETED',
-      details: `Completed ${txnId} for ₦${cartFinalTotal.toLocaleString()} (${paymentMethod}). Items: ${cart.map(c => `${c.quantity_sold}${c.unit} ${c.item_name}`).join(', ')}. Cashier: ${activeStaff.staff_name}.`,
+      details: `Completed ${txnId} for ₦${cartFinalTotal.toLocaleString()} via ${paymentMethod}${splitSummary}. Items: ${cart.map(c => `${c.quantity_sold}${c.unit} ${c.item_name}`).join(', ')}. Cashier: ${activeStaff.staff_name}.`,
       severity: 'SUCCESS',
-      metadata: { transaction_id: txnId, final_amount: cartFinalTotal, paymentMethod },
+      metadata: { 
+        transaction_id: txnId, 
+        final_amount: cartFinalTotal, 
+        paymentMethod,
+        payment_splits: paymentSplits,
+      },
     });
 
     // 5. OPEN RECEIPT MODAL

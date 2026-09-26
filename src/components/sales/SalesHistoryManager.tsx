@@ -50,7 +50,20 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
         tx.customer_id.toLowerCase().includes(search.toLowerCase()) ||
         (tx.item_name && tx.item_name.toLowerCase().includes(search.toLowerCase()));
 
-      const matchPayment = paymentFilter === 'All' || tx.payment_method === paymentFilter;
+      let matchPayment = true;
+      if (paymentFilter !== 'All') {
+        if (paymentFilter === 'Split Payment') {
+          matchPayment = tx.payment_method === 'Split Payment' || Boolean(tx.payment_splits && tx.payment_splits.length > 0);
+        } else if (paymentFilter === 'Cash') {
+          matchPayment = tx.payment_method === 'Cash' || Boolean(tx.payment_splits && tx.payment_splits.some(s => s.method === 'Cash'));
+        } else if (paymentFilter === 'Bank Transfer') {
+          matchPayment = tx.payment_method === 'Bank Transfer' || Boolean(tx.payment_splits && tx.payment_splits.some(s => s.method === 'Bank Transfer'));
+        } else if (paymentFilter === 'POS') {
+          matchPayment = tx.payment_method === 'POS' || tx.payment_method === 'Debit/Credit Card' || Boolean(tx.payment_splits && tx.payment_splits.some(s => s.method === 'POS' || s.method === 'Debit/Credit Card'));
+        } else {
+          matchPayment = tx.payment_method === paymentFilter;
+        }
+      }
 
       let matchDate = true;
       if (dateFilter === 'today') {
@@ -159,11 +172,11 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
               onChange={(e) => setPaymentFilter(e.target.value)}
               className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
             >
-              <option value="All">All Payment Methods</option>
-              <option value="Cash">Cash</option>
-              <option value="Debit/Credit Card">Debit/Credit Card</option>
-              <option value="Mobile Money">Mobile Money</option>
-              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="All">All Payment Modes</option>
+              <option value="Cash">Cash Payments</option>
+              <option value="Bank Transfer">Bank Transfers</option>
+              <option value="POS">POS Terminal Card</option>
+              <option value="Split Payment">Split Payments</option>
             </select>
           </div>
 
@@ -283,9 +296,26 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
 
                         {/* Payment Method */}
                         <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-800">
-                            {tx.payment_method}
-                          </span>
+                          {tx.payment_splits && tx.payment_splits.length > 0 ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                Split Payment
+                              </span>
+                              <div className="text-[10px] text-slate-500 font-mono">
+                                {tx.payment_splits.map(s => `${s.method === 'Bank Transfer' ? 'Transfer' : s.method}: ₦${(s.amount).toLocaleString()}`).join(' + ')}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                              tx.payment_method === 'Cash' 
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                                : tx.payment_method === 'Bank Transfer' 
+                                ? 'bg-blue-50 text-blue-800 border border-blue-200' 
+                                : 'bg-slate-100 text-slate-800 border border-slate-200'
+                            }`}>
+                              {tx.payment_method}
+                            </span>
+                          )}
                         </td>
 
                         {/* Discount Authorization */}

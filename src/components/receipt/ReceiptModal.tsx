@@ -141,10 +141,45 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               <span>₦{transaction.final_amount.toLocaleString()}</span>
             </div>
 
-            <div className="flex justify-between text-[10px] text-slate-500 pt-0.5">
-              <span>Payment Mode:</span>
-              <span className="font-semibold uppercase text-slate-800">{transaction.payment_method}</span>
-            </div>
+            {/* Payment Method / Split Details */}
+            {transaction.payment_splits && transaction.payment_splits.length > 0 ? (
+              <div className="bg-slate-100/90 p-2 rounded border border-slate-200 text-[10px] space-y-1 my-1">
+                <div className="font-bold text-slate-800 flex justify-between">
+                  <span>PAYMENT MODE:</span>
+                  <span className="text-emerald-800">SPLIT PAYMENT</span>
+                </div>
+                <div className="pt-0.5 space-y-0.5 border-t border-slate-200">
+                  {transaction.payment_splits.map((s, idx) => (
+                    <div key={idx} className="flex justify-between text-slate-700">
+                      <span>
+                        • {s.method}
+                        {s.reference ? ` [${s.reference}]` : ''}
+                      </span>
+                      <span className="font-bold font-mono">₦{s.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                  {transaction.change_due && transaction.change_due > 0 ? (
+                    <div className="flex justify-between text-emerald-800 font-bold pt-0.5 border-t border-slate-200">
+                      <span>Cash Change Given:</span>
+                      <span className="font-mono">₦{transaction.change_due.toLocaleString()}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-0.5 pt-0.5">
+                <div className="flex justify-between text-[10px] text-slate-500">
+                  <span>Payment Mode:</span>
+                  <span className="font-semibold uppercase text-slate-800">{transaction.payment_method}</span>
+                </div>
+                {transaction.change_due && transaction.change_due > 0 ? (
+                  <div className="flex justify-between text-[10px] text-emerald-800 font-bold">
+                    <span>Cash Change Given:</span>
+                    <span className="font-mono">₦{transaction.change_due.toLocaleString()}</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
 
           {/* Customer & Discount Authorization Section */}

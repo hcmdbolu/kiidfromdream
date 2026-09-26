@@ -233,13 +233,13 @@ app.post('/api/sales', (req: Request, res: Response) => {
       for (const item of transaction.items) {
         const prod = db.products.find(p => p.item_sn === item.item_sn);
         if (prod) {
-          prod.quantity = Math.max(0, prod.quantity - (item.quantity_sold || 0));
+          prod.quantity = Math.max(0, Math.round((prod.quantity - (item.quantity_sold || 0)) * 1000) / 1000);
         }
       }
     } else if (transaction.item_sn) {
       const prod = db.products.find(p => p.item_sn === transaction.item_sn);
       if (prod) {
-        prod.quantity = Math.max(0, prod.quantity - (transaction.quantity_sold || 0));
+        prod.quantity = Math.max(0, Math.round((prod.quantity - (transaction.quantity_sold || 0)) * 1000) / 1000);
       }
     }
 

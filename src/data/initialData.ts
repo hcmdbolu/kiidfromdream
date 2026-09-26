@@ -437,6 +437,46 @@ export const INITIAL_PURCHASE_ORDERS: PurchaseOrder[] = [
 
 export const INITIAL_SALES: SaleTransaction[] = [
   {
+    transaction_id: 'TXN-20260922-088',
+    date_time: '2026-09-22 11:15 AM',
+    items: [
+      {
+        item_sn: 'FISH-00045',
+        item_name: 'Fresh Catfish (Live/Fresh)',
+        quantity_sold: 12.5,
+        unit: 'KG',
+        unit_price: 4000,
+        total_amount: 50000,
+        cost_price: 2500,
+      }
+    ],
+    item_sn: 'FISH-00045',
+    item_name: 'Fresh Catfish (Live/Fresh)',
+    quantity_sold: 12.5,
+    unit_price: 4000,
+    total_amount: 50000,
+    discount_applied: 0,
+    final_amount: 50000,
+    payment_method: 'Split Payment',
+    payment_splits: [
+      {
+        method: 'Cash',
+        amount: 25000,
+        notes: '₦25,000 physical cash at counter',
+      },
+      {
+        method: 'Bank Transfer',
+        amount: 25000,
+        reference: 'TRF-GTB-891238',
+      }
+    ],
+    amount_paid: 50000,
+    change_due: 0,
+    staff_id: 'STAFF-001',
+    customer_id: 'CUST-00156',
+    status: 'COMPLETED',
+  },
+  {
     transaction_id: 'TXN-20260922-087',
     date_time: '2026-09-22 10:30 AM',
     items: [

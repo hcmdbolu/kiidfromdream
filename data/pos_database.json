@@ -1,12 +1,12 @@
 {
-  "version": 2,
-  "lastUpdated": "2026-09-23T10:51:27.784Z",
+  "version": 3,
+  "lastUpdated": "2026-09-26T00:24:48.337Z",
   "products": [
     {
       "item_sn": "FISH-00045",
       "item_name": "Fresh Catfish (Live/Fresh)",
       "item_picture": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80",
-      "quantity": 22,
+      "quantity": 20.8,
       "expiry_date": "2026-09-28",
       "item_cost": 2500,
       "product_measure_unit": "KG",
@@ -319,6 +319,42 @@
   ],
   "sales": [
     {
+      "transaction_id": "TXN-20260922-088",
+      "date_time": "2026-09-22 11:15 AM",
+      "items": [
+        {
+          "item_sn": "FISH-00045",
+          "item_name": "Fresh Catfish (Live/Fresh)",
+          "quantity_sold": 12.5,
+          "unit": "KG",
+          "unit_price": 4000,
+          "total_amount": 50000,
+          "cost_price": 2500
+        }
+      ],
+      "total_amount": 50000,
+      "discount_applied": 0,
+      "final_amount": 50000,
+      "payment_method": "Split Payment",
+      "payment_splits": [
+        {
+          "method": "Cash",
+          "amount": 25000,
+          "notes": "₦25,000 cash at counter"
+        },
+        {
+          "method": "Bank Transfer",
+          "amount": 25000,
+          "reference": "TRF-GTB-891238"
+        }
+      ],
+      "amount_paid": 50000,
+      "change_due": 0,
+      "staff_id": "STAFF-001",
+      "customer_id": "CUST-00156",
+      "status": "COMPLETED"
+    },
+    {
       "transaction_id": "TXN-20260922-087",
       "date_time": "2026-09-22 10:30 AM",
       "items": [
@@ -401,6 +437,18 @@
   ],
   "refunds": [],
   "auditLogs": [
+    {
+      "id": "AUDIT-1790382288297-695",
+      "timestamp": "2026-09-22 11:00 AM",
+      "staff_id": "STAFF-001",
+      "staff_name": "STAFF-001",
+      "staff_role": "Cashier",
+      "category": "SALES",
+      "action": "SALE_COMPLETED",
+      "details": "Sale TXN-TEST-SPLIT-001 finalized for ₦4,800 (Split Payment)",
+      "severity": "LOW",
+      "hash": "hash_1790382288337"
+    },
     {
       "id": "AUD-20260922-0001",
       "timestamp": "2026-09-22 08:00:15",

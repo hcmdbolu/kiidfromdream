@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { usePos } from '../../context/PosContext';
-import { ProductCategory, PaymentMethod } from '../../types';
+import { ProductCategory, PaymentMethod, SplitPaymentDetail, Product, Employee } from '../../types';
 import { 
   Search, 
   Plus, 
@@ -21,10 +21,15 @@ import {
   Lock,
   Percent,
   UserCheck,
-  ShieldCheck
+  ShieldCheck,
+  Scale,
+  Split,
+  Layers,
+  Calculator,
+  HelpCircle
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
-import { Employee } from '../../types';
+import { WeightModal } from './WeightModal';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
@@ -57,8 +62,28 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  
+  // Payment Mode: Single Payment (100%) vs Split Payment (Multi-Tender)
+  const [paymentMode, setPaymentMode] = useState<'single' | 'split'>('single');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>('Cash');
   const [cashTendered, setCashTendered] = useState<string>('');
+  const [singleRef, setSingleRef] = useState<string>(''); // e.g. Transfer session ID or POS RRN
+
+  // Split-Payment State
+  const [splitCashAmount, setSplitCashAmount] = useState<string>('');
+  const [splitCashTendered, setSplitCashTendered] = useState<string>('');
+  const [splitSecondMethod, setSplitSecondMethod] = useState<'Bank Transfer' | 'POS'>('Bank Transfer');
+  const [splitSecondAmount, setSplitSecondAmount] = useState<string>('');
+  const [splitSecondRef, setSplitSecondRef] = useState<string>('');
+  const [splitThirdMethod, setSplitThirdMethod] = useState<'POS' | 'Bank Transfer' | null>(null);
+  const [splitThirdAmount, setSplitThirdAmount] = useState<string>('');
+  const [splitThirdRef, setSplitThirdRef] = useState<string>('');
+
+  // Weight / Scale Measurement Modal State
+  const [weighingProduct, setWeighingProduct] = useState<Product | null>(null);
+  const [weighingInitialQty, setWeighingInitialQty] = useState<number>(1);
+  const [isWeighModalOpen, setIsWeighModalOpen] = useState(false);
+
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null);
 
@@ -72,6 +97,16 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
   const [discountError, setDiscountError] = useState<string | null>(null);
 
   const categories = ['All', 'Freshwater Fish', 'Saltwater Fish', 'Frozen Fish', 'Dried Fish'];
+
+  // Automatically update second split when cash amount or cart final total changes
+  useEffect(() => {
+    if (paymentMode === 'split') {
+      const cashVal = parseFloat(splitCashAmount) || 0;
+      const thirdVal = parseFloat(splitThirdAmount) || 0;
+      const remaining = Math.max(0, cartFinalTotal - cashVal - thirdVal);
+      setSplitSecondAmount(remaining > 0 ? remaining.toString() : '0');
+    }
+  }, [splitCashAmount, splitThirdAmount, cartFinalTotal, paymentMode]);
 
   // Filtered products
   const filteredProducts = useMemo(() => {
@@ -87,11 +122,46 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
 
   const selectedCustomer = customers.find(c => c.customer_id === selectedCustomerId);
 
-  // Cash change calculation
+  // Cash change calculation for single payment
   const cashAmountNum = parseFloat(cashTendered) || 0;
-  const changeDue = selectedPaymentMethod === 'Cash' && cashAmountNum > cartFinalTotal 
+  const changeDueSingle = selectedPaymentMethod === 'Cash' && cashAmountNum > cartFinalTotal 
     ? cashAmountNum - cartFinalTotal 
     : 0;
+
+  // Split-Payment Calculations
+  const splitCashNum = parseFloat(splitCashAmount) || 0;
+  const splitSecondNum = parseFloat(splitSecondAmount) || 0;
+  const splitThirdNum = parseFloat(splitThirdAmount) || 0;
+  const totalSplitAllocated = splitCashNum + splitSecondNum + splitThirdNum;
+  const splitRemainingBalance = cartFinalTotal - totalSplitAllocated;
+
+  const splitCashHanded = parseFloat(splitCashTendered) || 0;
+  const splitCashChangeDue = splitCashHanded > splitCashNum ? splitCashHanded - splitCashNum : 0;
+
+  // Open scale modal
+  const handleOpenWeigh = (product: Product, currentQty: number = 1) => {
+    setWeighingProduct(product);
+    setWeighingInitialQty(currentQty);
+    setIsWeighModalOpen(true);
+  };
+
+  const handleConfirmWeight = (quantity: number) => {
+    if (!weighingProduct) return;
+    const inCart = cart.find(c => c.item_sn === weighingProduct.item_sn);
+    if (inCart) {
+      updateCartQuantity(weighingProduct.item_sn, quantity);
+    } else {
+      addToCart(weighingProduct, quantity);
+    }
+    setIsWeighModalOpen(false);
+    setWeighingProduct(null);
+  };
+
+  // Helper to pre-set cash amount shortcuts
+  const handleSetCashShare = (fraction: number) => {
+    const share = Math.round(cartFinalTotal * fraction);
+    setSplitCashAmount(share.toString());
+  };
 
   const handleCheckout = () => {
     setCheckoutError(null);
@@ -102,20 +172,87 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
       return;
     }
 
-    if (selectedPaymentMethod === 'Cash' && cashAmountNum > 0 && cashAmountNum < cartFinalTotal) {
-      setCheckoutError(`Tendered amount ₦${cashAmountNum.toLocaleString()} is less than total ₦${cartFinalTotal.toLocaleString()}`);
-      return;
-    }
+    if (paymentMode === 'single') {
+      if (selectedPaymentMethod === 'Cash' && cashAmountNum > 0 && cashAmountNum < cartFinalTotal) {
+        setCheckoutError(`Tendered amount ₦${cashAmountNum.toLocaleString()} is less than total ₦${cartFinalTotal.toLocaleString()}`);
+        return;
+      }
 
-    const res = processCheckout(selectedPaymentMethod);
-    if (!res.success) {
-      setCheckoutError(res.error || 'Failed to process checkout');
+      const res = processCheckout(
+        selectedPaymentMethod,
+        undefined,
+        selectedPaymentMethod === 'Cash' ? (cashAmountNum || cartFinalTotal) : cartFinalTotal,
+        changeDueSingle
+      );
+
+      if (!res.success) {
+        setCheckoutError(res.error || 'Failed to process checkout');
+      } else {
+        setCheckoutSuccess(`Sale completed! Receipt TXN ${res.transaction?.transaction_id} generated.`);
+        setCashTendered('');
+        setSingleRef('');
+        setIsDiscountPanelOpen(false);
+        setOverrideStaff(null);
+        setTimeout(() => setCheckoutSuccess(null), 4000);
+      }
     } else {
-      setCheckoutSuccess(`Sale completed! Receipt TXN ${res.transaction?.transaction_id} generated.`);
-      setCashTendered('');
-      setIsDiscountPanelOpen(false);
-      setOverrideStaff(null);
-      setTimeout(() => setCheckoutSuccess(null), 4000);
+      // Split payment mode
+      if (Math.abs(splitRemainingBalance) > 1) {
+        setCheckoutError(`Payment allocations do not match total order (₦${cartFinalTotal.toLocaleString()}). Remaining balance: ₦${splitRemainingBalance.toLocaleString()}`);
+        return;
+      }
+
+      if (splitCashNum <= 0 && splitSecondNum <= 0) {
+        setCheckoutError('Please allocate amounts for split payment.');
+        return;
+      }
+
+      const splits: SplitPaymentDetail[] = [];
+      if (splitCashNum > 0) {
+        splits.push({
+          method: 'Cash',
+          amount: splitCashNum,
+          notes: splitCashChangeDue > 0 ? `Tendered ₦${splitCashHanded.toLocaleString()}, Change ₦${splitCashChangeDue.toLocaleString()}` : undefined
+        });
+      }
+      if (splitSecondNum > 0) {
+        splits.push({
+          method: splitSecondMethod,
+          amount: splitSecondNum,
+          reference: splitSecondRef.trim() || undefined
+        });
+      }
+      if (splitThirdMethod && splitThirdNum > 0) {
+        splits.push({
+          method: splitThirdMethod,
+          amount: splitThirdNum,
+          reference: splitThirdRef.trim() || undefined
+        });
+      }
+
+      const totalPaid = totalSplitAllocated + (splitCashChangeDue > 0 ? splitCashChangeDue : 0);
+
+      const res = processCheckout(
+        'Split Payment',
+        splits,
+        totalPaid,
+        splitCashChangeDue
+      );
+
+      if (!res.success) {
+        setCheckoutError(res.error || 'Failed to process split checkout');
+      } else {
+        setCheckoutSuccess(`Split sale completed! Receipt TXN ${res.transaction?.transaction_id} generated.`);
+        setSplitCashAmount('');
+        setSplitCashTendered('');
+        setSplitSecondRef('');
+        setSplitThirdMethod(null);
+        setSplitThirdAmount('');
+        setSplitThirdRef('');
+        setIsDiscountPanelOpen(false);
+        setOverrideStaff(null);
+        setTimeout(() => setCheckoutSuccess(null), 4000);
+      }
     }
   };
 
@@ -338,32 +475,62 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                             Out of Stock
                           </button>
                         ) : inCart ? (
-                          <div className="flex items-center space-x-1.5 bg-emerald-50 border border-emerald-300 rounded-lg p-1">
+                          <div className="flex items-center space-x-1 bg-emerald-50 border border-emerald-300 rounded-lg p-1">
                             <button
-                              onClick={() => updateCartQuantity(product.item_sn, inCart.quantity_sold - 1)}
-                              className="w-6 h-6 rounded bg-white shadow-xs flex items-center justify-center text-slate-700 hover:bg-emerald-100"
+                              onClick={() => {
+                                const step = inCart.quantity_sold <= 2 ? 0.1 : 1;
+                                updateCartQuantity(product.item_sn, Math.max(0, Math.round((inCart.quantity_sold - step) * 10) / 10));
+                              }}
+                              className="w-5 h-5 rounded bg-white shadow-xs flex items-center justify-center text-slate-700 hover:bg-emerald-100"
+                              title="Decrease"
                             >
-                              <Minus className="w-3.5 h-3.5" />
+                              <Minus className="w-3 h-3" />
                             </button>
-                            <span className="text-xs font-bold text-emerald-900 px-1">
-                              {inCart.quantity_sold}
-                            </span>
                             <button
-                              onClick={() => updateCartQuantity(product.item_sn, inCart.quantity_sold + 1)}
-                              disabled={inCart.quantity_sold >= product.quantity}
-                              className="w-6 h-6 rounded bg-emerald-600 text-white shadow-xs flex items-center justify-center hover:bg-emerald-700 disabled:opacity-50"
+                              onClick={() => handleOpenWeigh(product, inCart.quantity_sold)}
+                              className="text-xs font-bold text-emerald-950 px-1 font-mono hover:underline flex items-center space-x-0.5"
+                              title="Click to adjust exact scale weight"
                             >
-                              <Plus className="w-3.5 h-3.5" />
+                              <span>{inCart.quantity_sold}</span>
+                              <span className="text-[10px] text-emerald-700 font-normal">{product.product_measure_unit}</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                const step = inCart.quantity_sold < 2 ? 0.1 : 1;
+                                updateCartQuantity(product.item_sn, Math.round((inCart.quantity_sold + step) * 10) / 10);
+                              }}
+                              disabled={inCart.quantity_sold >= product.quantity}
+                              className="w-5 h-5 rounded bg-emerald-600 text-white shadow-xs flex items-center justify-center hover:bg-emerald-700 disabled:opacity-50"
+                              title="Increase"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={() => handleOpenWeigh(product, inCart.quantity_sold)}
+                              className="w-5 h-5 rounded bg-emerald-100 text-emerald-800 hover:bg-emerald-200 flex items-center justify-center ml-0.5"
+                              title="Scale measurement tool"
+                            >
+                              <Scale className="w-3 h-3" />
                             </button>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => addToCart(product, 1)}
-                            className="flex items-center space-x-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>Add</span>
-                          </button>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => handleOpenWeigh(product, 1)}
+                              className="flex items-center space-x-1 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition-all"
+                              title="Weigh item with scale (e.g. 1.2 kg or 1.3 kg)"
+                            >
+                              <Scale className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>Weigh</span>
+                            </button>
+                            <button
+                              onClick={() => addToCart(product, 1)}
+                              className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -479,21 +646,65 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                         </div>
                       </div>
 
-                      {/* Qty Stepper */}
-                      <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-md">
+                      {/* Qty & Weight Controls */}
+                      <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
                         <button
-                          onClick={() => updateCartQuantity(item.item_sn, item.quantity_sold - 1)}
+                          onClick={() => {
+                            const step = item.quantity_sold <= 2 ? 0.1 : 1;
+                            updateCartQuantity(item.item_sn, Math.max(0, Math.round((item.quantity_sold - step) * 10) / 10));
+                          }}
                           className="w-5 h-5 rounded bg-white text-slate-700 flex items-center justify-center hover:bg-slate-200"
+                          title="Decrease weight/qty"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="w-6 text-center font-bold text-slate-900">{item.quantity_sold}</span>
+                        
+                        {/* Direct editable decimal weight input */}
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0.05"
+                            max={item.maxAvailable}
+                            value={item.quantity_sold}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              if (!isNaN(val) && val > 0) {
+                                updateCartQuantity(item.item_sn, val);
+                              }
+                            }}
+                            className="w-14 text-center font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            title="Directly enter weight or count (e.g. 1.2 or 1.3)"
+                          />
+                        </div>
+
                         <button
-                          onClick={() => updateCartQuantity(item.item_sn, item.quantity_sold + 1)}
-                          className="w-5 h-5 rounded bg-white text-slate-700 flex items-center justify-center hover:bg-slate-200"
+                          onClick={() => {
+                            const step = item.quantity_sold < 2 ? 0.1 : 1;
+                            updateCartQuantity(item.item_sn, Math.round((item.quantity_sold + step) * 10) / 10);
+                          }}
+                          disabled={item.quantity_sold >= item.maxAvailable}
+                          className="w-5 h-5 rounded bg-white text-slate-700 flex items-center justify-center hover:bg-slate-200 disabled:opacity-50"
+                          title="Increase weight/qty"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
+
+                        {/* Open scale reading dialog */}
+                        {(() => {
+                          const prod = products.find(p => p.item_sn === item.item_sn);
+                          if (!prod) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenWeigh(prod, item.quantity_sold)}
+                              className="p-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded transition-colors"
+                              title="Open scale weight dialog"
+                            >
+                              <Scale className="w-3 h-3" />
+                            </button>
+                          );
+                        })()}
                       </div>
 
                       <div className="text-right pl-3 min-w-[75px]">
@@ -742,59 +953,336 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                 </div>
               </div>
 
-              {/* Payment Method Selector */}
+              {/* Payment Mode Selector Tabs */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Payment Method
-                </label>
-                <div className="grid grid-cols-3 gap-1.5 text-xs">
-                  {[
-                    { id: 'Cash', label: 'Cash', icon: Banknote },
-                    { id: 'Debit/Credit Card', label: 'Card / POS', icon: CreditCard },
-                    { id: 'Mobile Money', label: 'Transfer / MoMo', icon: Smartphone },
-                  ].map(m => {
-                    const Icon = m.icon;
-                    const isSelected = selectedPaymentMethod === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setSelectedPaymentMethod(m.id as PaymentMethod)}
-                        className={`flex flex-col items-center justify-center p-2 rounded-lg border font-medium transition-all ${
-                          isSelected
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4 mb-1" />
-                        <span className="text-[11px]">{m.label}</span>
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700">
+                    Payment Method
+                  </label>
+                  <span className="text-[10px] text-slate-500">
+                    {paymentMode === 'split' ? 'Split payment mode active' : 'Full payment mode'}
+                  </span>
                 </div>
-              </div>
 
-              {/* Cash Tendered Calculator (if Cash chosen) */}
-              {selectedPaymentMethod === 'Cash' && cart.length > 0 && (
-                <div className="p-2.5 bg-amber-50/60 rounded-lg border border-amber-200 text-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-amber-900">Cash Tendered (₦):</span>
-                    <input
-                      type="number"
-                      value={cashTendered}
-                      onChange={(e) => setCashTendered(e.target.value)}
-                      placeholder={`Min ₦${cartFinalTotal.toLocaleString()}`}
-                      className="w-36 px-2 py-1 bg-white border border-amber-300 rounded text-right font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                  </div>
-                  {changeDue > 0 && (
-                    <div className="flex justify-between font-bold text-amber-950 text-xs pt-1 border-t border-amber-200">
-                      <span>Change Due to Customer:</span>
-                      <span className="text-emerald-700 font-mono">₦{changeDue.toLocaleString()}</span>
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode('single')}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
+                      paymentMode === 'single'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Banknote className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Single Tender (100%)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentMode('split');
+                      if (!splitCashAmount && cartFinalTotal > 0) {
+                        setSplitCashAmount(Math.round(cartFinalTotal / 2).toString());
+                      }
+                    }}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
+                      paymentMode === 'split'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Split className="w-3.5 h-3.5" />
+                    <span>Split Payment (Multi-Tender)</span>
+                  </button>
                 </div>
-              )}
+
+                {/* SINGLE PAYMENT MODE */}
+                {paymentMode === 'single' ? (
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-3 gap-1.5 text-xs">
+                      {[
+                        { id: 'Cash', label: 'Cash', icon: Banknote },
+                        { id: 'Bank Transfer', label: 'Bank Transfer', icon: Building2 },
+                        { id: 'POS', label: 'POS Terminal', icon: CreditCard },
+                      ].map(m => {
+                        const Icon = m.icon;
+                        const isSelected = selectedPaymentMethod === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => setSelectedPaymentMethod(m.id as PaymentMethod)}
+                            className={`flex flex-col items-center justify-center p-2 rounded-lg border font-medium transition-all ${
+                              isSelected
+                                ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Icon className="w-4 h-4 mb-1 text-emerald-500" />
+                            <span className="text-[11px] font-semibold">{m.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Cash Tendered Calculator (if Cash chosen) */}
+                    {selectedPaymentMethod === 'Cash' && cart.length > 0 && (
+                      <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 text-xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-amber-900">Cash Tendered by Customer:</span>
+                          <div className="relative">
+                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">₦</span>
+                            <input
+                              type="number"
+                              value={cashTendered}
+                              onChange={(e) => setCashTendered(e.target.value)}
+                              placeholder={`Exact ₦${cartFinalTotal.toLocaleString()}`}
+                              className="w-36 pl-6 pr-2 py-1.5 bg-white border border-amber-300 rounded-lg text-right font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Quick cash denomination buttons */}
+                        <div className="flex space-x-1.5 pt-0.5">
+                          {[cartFinalTotal, Math.ceil(cartFinalTotal / 1000) * 1000, Math.ceil(cartFinalTotal / 5000) * 5000].filter((v, i, a) => a.indexOf(v) === i && v >= cartFinalTotal).slice(0, 3).map(amt => (
+                            <button
+                              key={amt}
+                              type="button"
+                              onClick={() => setCashTendered(amt.toString())}
+                              className="px-2 py-0.5 bg-amber-100/70 hover:bg-amber-200 text-amber-900 rounded font-mono text-[10px]"
+                            >
+                              ₦{amt.toLocaleString()}
+                            </button>
+                          ))}
+                        </div>
+
+                        {changeDueSingle > 0 && (
+                          <div className="flex justify-between font-bold text-amber-950 text-xs pt-1.5 border-t border-amber-200">
+                            <span>Change Due to Customer:</span>
+                            <span className="text-emerald-700 font-mono text-sm">₦{changeDueSingle.toLocaleString()}</span>
+                          </div>
+                        )}
+
+                        <div className="pt-1 border-t border-amber-200/60 flex items-center justify-between text-[11px] text-amber-800">
+                          <span>Customer wants to pay partially in Cash?</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentMode('split');
+                              if (cashAmountNum > 0 && cashAmountNum < cartFinalTotal) {
+                                setSplitCashAmount(cashAmountNum.toString());
+                              } else {
+                                setSplitCashAmount(Math.round(cartFinalTotal / 2).toString());
+                              }
+                            }}
+                            className="font-bold text-emerald-700 hover:underline flex items-center space-x-1"
+                          >
+                            <Split className="w-3 h-3" />
+                            <span>Switch to Split Tender</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bank Transfer / POS Reference Input */}
+                    {(selectedPaymentMethod === 'Bank Transfer' || selectedPaymentMethod === 'POS') && (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                        <label className="text-[11px] font-semibold text-slate-700 block">
+                          {selectedPaymentMethod === 'Bank Transfer' ? 'Bank Transfer Session / Ref ID (Optional):' : 'POS Terminal RRN / Slip Number (Optional):'}
+                        </label>
+                        <input
+                          type="text"
+                          value={singleRef}
+                          onChange={(e) => setSingleRef(e.target.value)}
+                          placeholder={selectedPaymentMethod === 'Bank Transfer' ? 'e.g. TRF-GTB-891238' : 'e.g. STANBIC-RRN-9921'}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* SPLIT-PAYMENT (MULTI-TENDER) MODE */
+                  <div className="space-y-3 p-3.5 bg-slate-50 rounded-xl border-2 border-emerald-500/40 text-xs animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <div className="flex items-center space-x-1.5 font-bold text-slate-900">
+                        <Split className="w-4 h-4 text-emerald-600" />
+                        <span>Split-Payment Allocation</span>
+                      </div>
+                      <span className="font-mono font-bold text-xs text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                        Total: ₦{cartFinalTotal.toLocaleString()}
+                      </span>
+                    </div>
+
+                    {/* STEP 1: SPECIFY CASH AMOUNT */}
+                    <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 flex items-center space-x-1.5">
+                          <Banknote className="w-4 h-4 text-emerald-600" />
+                          <span>1. Cash Amount Specified:</span>
+                        </span>
+                        <div className="relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-xs">₦</span>
+                          <input
+                            type="number"
+                            value={splitCashAmount}
+                            onChange={(e) => setSplitCashAmount(e.target.value)}
+                            placeholder="e.g. 25000"
+                            className="w-36 pl-5 pr-2 py-1 bg-white border border-slate-300 rounded-lg text-right font-mono font-bold text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Cash share preset shortcuts */}
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                        <span className="text-[10px] text-slate-400">Quick Cash Share:</span>
+                        <div className="flex space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => handleSetCashShare(0.5)}
+                            className="px-2 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-[10px]"
+                          >
+                            50% (₦{Math.round(cartFinalTotal * 0.5).toLocaleString()})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSetCashShare(0.25)}
+                            className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px]"
+                          >
+                            25%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSplitCashAmount(cartFinalTotal.toString())}
+                            className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px]"
+                          >
+                            100%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSplitCashAmount('0')}
+                            className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-rose-600 font-semibold text-[10px]"
+                          >
+                            0
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Optional Cash Notes Handed (Change Calculator) */}
+                      {splitCashNum > 0 && (
+                        <div className="pt-2 border-t border-dashed border-slate-200 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-600">Physical Notes Received (₦):</span>
+                          <input
+                            type="number"
+                            value={splitCashTendered}
+                            onChange={(e) => setSplitCashTendered(e.target.value)}
+                            placeholder={`e.g. ₦${splitCashNum.toLocaleString()}`}
+                            className="w-32 px-2 py-0.5 bg-slate-50 border border-slate-200 rounded text-right font-mono text-xs focus:outline-none"
+                          />
+                        </div>
+                      )}
+                      {splitCashChangeDue > 0 && (
+                        <div className="flex justify-between text-xs font-bold text-amber-900 bg-amber-50 p-1.5 rounded">
+                          <span>Cash Change to Return:</span>
+                          <span className="font-mono text-emerald-700">₦{splitCashChangeDue.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* STEP 2: ROUTE REMAINING BALANCE */}
+                    <div className="p-2.5 bg-white rounded-lg border border-slate-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800 flex items-center space-x-1.5">
+                          <Layers className="w-4 h-4 text-emerald-600" />
+                          <span>2. Route Balance:</span>
+                        </span>
+                        <span className="font-mono font-bold text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          ₦{splitSecondNum.toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Route selector: Bank Transfer vs POS Terminal */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSplitSecondMethod('Bank Transfer')}
+                          className={`py-1.5 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
+                            splitSecondMethod === 'Bank Transfer'
+                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Bank Transfer</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSplitSecondMethod('POS')}
+                          className={`py-1.5 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
+                            splitSecondMethod === 'POS'
+                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>POS Terminal</span>
+                        </button>
+                      </div>
+
+                      {/* Reference input for second method */}
+                      <div>
+                        <input
+                          type="text"
+                          value={splitSecondRef}
+                          onChange={(e) => setSplitSecondRef(e.target.value)}
+                          placeholder={
+                            splitSecondMethod === 'Bank Transfer'
+                              ? 'Transfer Session ID / Bank Reference (Optional)'
+                              : 'POS Terminal Auth / RRN Slip Code (Optional)'
+                          }
+                          className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* ALLOCATION BALANCE STATUS */}
+                    <div className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
+                      Math.abs(splitRemainingBalance) === 0
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-amber-50 border-amber-200 text-amber-900'
+                    }`}>
+                      <div className="flex items-center space-x-1.5">
+                        {Math.abs(splitRemainingBalance) === 0 ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        )}
+                        <div>
+                          <div className="font-bold">
+                            {Math.abs(splitRemainingBalance) === 0 
+                              ? 'Split Fully Balanced (100% Allocated)' 
+                              : `Unallocated Balance: ₦${splitRemainingBalance.toLocaleString()}`}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            Cash: ₦{splitCashNum.toLocaleString()} + {splitSecondMethod}: ₦{splitSecondNum.toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cashVal = parseFloat(splitCashAmount) || 0;
+                          setSplitSecondAmount(Math.max(0, cartFinalTotal - cashVal).toString());
+                        }}
+                        className="text-[10px] font-bold text-emerald-700 hover:underline px-1.5 py-0.5 bg-white rounded border border-emerald-300"
+                      >
+                        Auto-Balance
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* Alert Feedback */}
               {checkoutError && (
@@ -815,7 +1303,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
               <button
                 type="button"
                 onClick={handleCheckout}
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || (paymentMode === 'split' && Math.abs(splitRemainingBalance) > 1)}
                 className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-md flex items-center justify-center space-x-2 transition-all"
               >
                 <span>Complete Sale & Print Receipt</span>
@@ -837,6 +1325,18 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
         mode="OVERRIDE"
         actionDescription="Apply custom order discount to customer checkout"
         onSuccess={handlePinSuccess}
+      />
+
+      {/* Scale Reading & Weight Override Modal */}
+      <WeightModal
+        isOpen={isWeighModalOpen}
+        onClose={() => {
+          setIsWeighModalOpen(false);
+          setWeighingProduct(null);
+        }}
+        product={weighingProduct}
+        currentQuantity={weighingInitialQty}
+        onConfirm={handleConfirmWeight}
       />
     </div>
   );
