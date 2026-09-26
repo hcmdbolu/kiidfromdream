@@ -84,6 +84,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
                 <span>{customer.customer_id}</span>
               </div>
             )}
+            {transaction.status === 'REFUNDED' && (
+              <div className="py-1 px-2 mt-1 rounded bg-rose-100 text-rose-800 text-center font-bold text-[10px] border border-rose-300 tracking-wider">
+                *** FULLY REFUNDED / RETURNED ***
+              </div>
+            )}
+            {transaction.status === 'PARTIALLY_REFUNDED' && (
+              <div className="py-1 px-2 mt-1 rounded bg-amber-100 text-amber-800 text-center font-bold text-[10px] border border-amber-300 tracking-wider">
+                *** PARTIALLY REFUNDED TRANSACTION ***
+              </div>
+            )}
           </div>
 
           {/* Items Table */}

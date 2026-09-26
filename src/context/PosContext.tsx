@@ -1741,27 +1741,63 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         item_name: saleTx.item_name || 'Fish Item',
         quantity_sold: saleTx.quantity_sold || 0,
         unit_price: saleTx.unit_price || 0,
+        unit: 'KG',
       } : null);
 
     if (!itemToRefund) {
       return { success: false, error: 'Item not found in specified transaction.' };
     }
 
-    if (quantity > itemToRefund.quantity_sold) {
-      return { success: false, error: `Cannot refund more than original purchase quantity (${itemToRefund.quantity_sold}).` };
+    const previouslyRefundedQty = refunds
+      .filter(r => r.original_transaction_id === originalTxnId && r.item_sn === item_sn)
+      .reduce((sum, r) => sum + r.quantity_refunded, 0);
+
+    const remainingRefundableQty = Math.max(0, Math.round(((itemToRefund.quantity_sold || 0) - previouslyRefundedQty) * 1000) / 1000);
+
+    if (quantity <= 0) {
+      return { success: false, error: 'Refund quantity must be greater than 0.' };
     }
 
-    const refundAmount = quantity * itemToRefund.unit_price;
+    if (quantity > remainingRefundableQty) {
+      return { 
+        success: false, 
+        error: `Cannot refund ${quantity}. Only ${remainingRefundableQty} remaining refundable (original sold: ${itemToRefund.quantity_sold}, previously refunded: ${previouslyRefundedQty}).` 
+      };
+    }
+
+    const refundAmount = Math.round(quantity * itemToRefund.unit_price);
     const refundId = `REF-${Date.now().toString().slice(-6)}`;
     const todayStr = new Date().toLocaleString();
 
-    // 1. RESTOCK PRODUCT INVENTORY
+    const managerName = authorizerStaff 
+      ? `${authorizerStaff.staff_name} (${authorizerStaff.role})` 
+      : `${activeStaff.staff_name} (${activeStaff.role})`;
+
+    // Determine settlement channel mapping (Cash drawer float vs POS terminal vs Bank transfer):
+    let settlementType: 'CASH' | 'POS_TERMINAL' | 'BANK_TRANSFER' | 'SPLIT' = 'CASH';
+    let settlementLabel = 'Cashier Cash Drawer Float';
+
+    if (saleTx.payment_method === 'Cash') {
+      settlementType = 'CASH';
+      settlementLabel = `Cashier Cash Drawer Float (${saleTx.staff_id})`;
+    } else if (saleTx.payment_method === 'POS') {
+      settlementType = 'POS_TERMINAL';
+      settlementLabel = `POS Terminal ${saleTx.pos_terminal_name || 'Terminal'}${saleTx.pos_terminal_id ? ` (ID: ${saleTx.pos_terminal_id})` : ''}`;
+    } else if (saleTx.payment_method === 'Bank Transfer') {
+      settlementType = 'BANK_TRANSFER';
+      settlementLabel = `Bank Account ${saleTx.bank_name || 'Bank'}${saleTx.bank_account_number ? ` (${saleTx.bank_account_number})` : ''}`;
+    } else if (saleTx.payment_method === 'Split Payment') {
+      settlementType = 'SPLIT';
+      settlementLabel = `Split Tender Account (${saleTx.payment_splits?.map(s => s.method).join(' / ') || 'Multi'})`;
+    }
+
+    // 1. RESTOCK PRODUCT INVENTORY (Float safe precision)
     setProducts(prev =>
       prev.map(p => {
         if (p.item_sn === item_sn) {
           return {
             ...p,
-            quantity: p.quantity + quantity,
+            quantity: Math.round((p.quantity + quantity) * 1000) / 1000,
           };
         }
         return p;
@@ -1780,32 +1816,67 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       reason,
       staff_id: activeStaff.staff_id,
       customer_id: saleTx.customer_id || 'Walk-in',
-      authorized_by: authorizedByStaffId || activeStaff.staff_id,
+      authorized_by: authorizerStaff?.staff_id || activeStaff.staff_id,
+      manager_name: managerName,
+      payment_method: saleTx.payment_method,
+      pos_terminal_id: saleTx.pos_terminal_id,
+      pos_terminal_name: saleTx.pos_terminal_name,
+      bank_account_number: saleTx.bank_account_number,
+      bank_name: saleTx.bank_name,
+      settlement_type: settlementType,
     };
 
     setRefunds(prev => [newRefund, ...prev]);
 
-    // 3. UPDATE SALE TRANSACTION STATUS
+    // 3. UPDATE SALE TRANSACTION STATUS (Check if all items on transaction are fully returned)
+    const allItemsTotalSold = saleTx.items && saleTx.items.length > 0
+      ? saleTx.items.reduce((acc, it) => acc + it.quantity_sold, 0)
+      : (saleTx.quantity_sold || 0);
+
+    const otherRefundedQty = refunds
+      .filter(r => r.original_transaction_id === originalTxnId && r.item_sn !== item_sn)
+      .reduce((acc, r) => acc + r.quantity_refunded, 0);
+
+    const totalRefundedOnTx = previouslyRefundedQty + quantity + otherRefundedQty;
+    const isFullRefund = Math.round(totalRefundedOnTx * 1000) >= Math.round(allItemsTotalSold * 1000);
+
     setSales(prev =>
       prev.map(s => {
         if (s.transaction_id === originalTxnId) {
-          const isFull = quantity >= (itemToRefund.quantity_sold || 0);
           return {
             ...s,
-            status: isFull ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+            status: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
           };
         }
         return s;
       })
     );
 
-    // 4. LOG AUDIT ENTRY
+    // 4. LOG COMPREHENSIVE AUDIT ENTRY (Cryptographic Audit Ledger)
     addAuditLogInternal({
       category: 'Refunds',
       action: 'REFUND_PROCESSED',
-      details: `Refund ${refundId} completed for ₦${refundAmount.toLocaleString()} on Txn ${originalTxnId}. Reason: "${reason}". Restocked: ${quantity} KG of ${itemToRefund.item_name}. Authorized: ${authorizedByStaffId || activeStaff.staff_name}.`,
+      details: `Refund ${refundId} completed: ₦${refundAmount.toLocaleString()} refunded for ${quantity} ${itemToRefund.unit || 'KG'} of ${itemToRefund.item_name} on Txn ${originalTxnId}. Reason: "${reason}". Restocked to Cold Room Inventory. Authorized by Manager: ${managerName}. Settlement Deduction: ${settlementLabel}.`,
       severity: 'WARNING',
-      metadata: { refundId, originalTxnId, refundAmount, quantity, item_sn },
+      metadata: {
+        refundId,
+        originalTxnId,
+        refundAmount,
+        amount: refundAmount,
+        quantity,
+        restocked_quantity: quantity,
+        item_sn,
+        item_name: itemToRefund.item_name,
+        manager_name: managerName,
+        manager_id: authorizerStaff?.staff_id || activeStaff.staff_id,
+        settlement_type: settlementType,
+        settlement_channel: settlementLabel,
+        payment_method: saleTx.payment_method,
+        pos_terminal_id: saleTx.pos_terminal_id,
+        pos_terminal_name: saleTx.pos_terminal_name,
+        bank_name: saleTx.bank_name,
+        bank_account_number: saleTx.bank_account_number,
+      },
     });
 
     // 5. PUSH TO CENTRAL SERVER DATABASE
@@ -1827,8 +1898,8 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : employees;
 
     return targetStaffList.map(staff => {
-      // 1. Calculate cash collected from sales by this staff
-      const staffSales = sales.filter(s => s.staff_id === staff.staff_id && s.status !== 'REFUNDED');
+      // 1. Calculate gross cash collected from all sales by this staff
+      const staffSales = sales.filter(s => s.staff_id === staff.staff_id);
       
       let totalCashCollected = 0;
       let salesCount = 0;

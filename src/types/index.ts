@@ -220,6 +220,13 @@ export interface RefundRecord {
   staff_id: string;
   customer_id: string;
   authorized_by?: string; // If cashier performed via supervisor override
+  manager_name?: string;
+  payment_method?: PaymentMethod;
+  pos_terminal_id?: string;
+  pos_terminal_name?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  settlement_type?: 'CASH' | 'POS_TERMINAL' | 'BANK_TRANSFER' | 'SPLIT';
 }
 
 export interface CycleCountRecord {

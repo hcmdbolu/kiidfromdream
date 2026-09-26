@@ -21,7 +21,9 @@ import {
   Split,
   Layers,
   FileSpreadsheet,
-  ShieldCheck
+  ShieldCheck,
+  RotateCcw,
+  Scale
 } from 'lucide-react';
 
 interface ReportingDashboardProps {
@@ -34,6 +36,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   const { 
     products, 
     sales, 
+    refunds,
     voidedOrders,
     customers, 
     employees, 
@@ -87,57 +90,129 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     });
   }, [sales, dateRange, customStartDate, customEndDate, now]);
 
-  // Financial calculations
-  const { totalRevenue, totalCogs, grossProfit, profitMargin, totalQuantitySold, averageOrderValue } = useMemo(() => {
-    let rev = 0;
-    let cogs = 0;
-    let qty = 0;
+  // Filtered refunds based on date range or matching relevant sales transactions
+  const relevantRefunds = useMemo(() => {
+    if (dateRange === 'all') return refunds;
+
+    const todayStr = '2026-09-22';
+    const yesterdayStr = '2026-09-21';
+    const relevantTxIds = new Set(relevantSales.map(s => s.transaction_id));
+
+    return refunds.filter(r => {
+      if (relevantTxIds.has(r.original_transaction_id)) return true;
+      const rawDate = r.date_time.split(' ')[0] || '';
+      if (dateRange === 'today') {
+        return rawDate.startsWith(todayStr) || rawDate.startsWith(now.toISOString().split('T')[0]);
+      }
+      if (dateRange === 'yesterday') {
+        return rawDate.startsWith(yesterdayStr);
+      }
+      if (dateRange === 'week') {
+        return rawDate >= '2026-09-15' && rawDate <= '2026-09-22';
+      }
+      if (dateRange === 'month') {
+        return rawDate.startsWith('2026-09') || rawDate.startsWith(now.toISOString().slice(0, 7));
+      }
+      if (dateRange === 'custom') {
+        if (!customStartDate && !customEndDate) return true;
+        if (customStartDate && rawDate < customStartDate) return false;
+        if (customEndDate && rawDate > customEndDate) return false;
+        return true;
+      }
+      return true;
+    });
+  }, [refunds, relevantSales, dateRange, customStartDate, customEndDate, now]);
+
+  // Financial calculations with dynamic refund deductions (Gross Sales, Net Sales, Realized Profit)
+  const { 
+    grossRevenue,
+    totalRefundAmount,
+    totalRefundCount,
+    netRevenue,
+    totalCogs,
+    refundedCogs,
+    netCogs,
+    grossProfit,
+    profitMargin,
+    grossQuantitySold,
+    totalQuantityReturned,
+    netQuantitySold,
+    averageOrderValue 
+  } = useMemo(() => {
+    let grossRev = 0;
+    let rawCogs = 0;
+    let grossQty = 0;
 
     relevantSales.forEach(sale => {
-      rev += sale.final_amount;
+      grossRev += sale.final_amount;
       
       if (sale.items && sale.items.length > 0) {
         sale.items.forEach(item => {
-          qty += item.quantity_sold;
+          grossQty += item.quantity_sold;
           const prod = products.find(p => p.item_sn === item.item_sn);
           const unitCost = prod ? prod.item_cost : item.unit_price * 0.6;
-          cogs += unitCost * item.quantity_sold;
+          rawCogs += unitCost * item.quantity_sold;
         });
       } else {
         const itemQty = sale.quantity_sold ?? 0;
-        qty += itemQty;
+        grossQty += itemQty;
         const prod = products.find(p => p.item_sn === sale.item_sn);
         const unitCost = prod ? prod.item_cost : (sale.unit_price || 2500);
-        cogs += unitCost * itemQty;
+        rawCogs += unitCost * itemQty;
       }
     });
 
-    const profit = rev - cogs;
-    const margin = rev > 0 ? Math.round((profit / rev) * 100) : 0;
-    const aov = relevantSales.length > 0 ? Math.round(rev / relevantSales.length) : 0;
+    let refundAmount = 0;
+    let refundQty = 0;
+    let refCogs = 0;
+
+    relevantRefunds.forEach(ref => {
+      refundAmount += ref.refund_amount;
+      refundQty += ref.quantity_refunded;
+      const prod = products.find(p => p.item_sn === ref.item_sn);
+      const unitCost = prod ? prod.item_cost : 2500;
+      refCogs += unitCost * ref.quantity_refunded;
+    });
+
+    const netRev = Math.max(0, grossRev - refundAmount);
+    const realizedCogs = Math.max(0, rawCogs - refCogs);
+    const profit = netRev - realizedCogs;
+    const margin = netRev > 0 ? Math.round((profit / netRev) * 100) : 0;
+    const aov = relevantSales.length > 0 ? Math.round(netRev / relevantSales.length) : 0;
 
     return {
-      totalRevenue: rev,
-      totalCogs: cogs,
+      grossRevenue: grossRev,
+      totalRefundAmount: refundAmount,
+      totalRefundCount: relevantRefunds.length,
+      netRevenue: netRev,
+      totalCogs: Math.round(rawCogs),
+      refundedCogs: Math.round(refCogs),
+      netCogs: Math.round(realizedCogs),
       grossProfit: Math.round(profit),
       profitMargin: margin,
-      totalQuantitySold: Math.round(qty * 100) / 100,
+      grossQuantitySold: Math.round(grossQty * 100) / 100,
+      totalQuantityReturned: Math.round(refundQty * 100) / 100,
+      netQuantitySold: Math.round(Math.max(0, grossQty - refundQty) * 100) / 100,
       averageOrderValue: aov,
     };
-  }, [relevantSales, products]);
+  }, [relevantSales, relevantRefunds, products]);
 
-  // Comprehensive Payment Mode Reconciliation (Cash, Transfer, and POS)
+  // Backward-compatible alias for existing JSX references
+  const totalRevenue = netRevenue;
+  const totalQuantitySold = netQuantitySold;
+
+  // Comprehensive Payment Mode Reconciliation (Cash, Transfer, and POS) with refund deductions
   const paymentReconciliation = useMemo(() => {
-    let cashTotal = 0;
+    let cashGross = 0;
     let cashCount = 0;
 
-    let transferTotal = 0;
+    let transferGross = 0;
     let transferCount = 0;
 
-    let posTotal = 0;
+    let posGross = 0;
     let posCount = 0;
 
-    let otherTotal = 0;
+    let otherGross = 0;
     let otherCount = 0;
 
     let splitTxCount = 0;
@@ -149,67 +224,96 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         splitTotalAmount += s.final_amount;
         s.payment_splits.forEach(split => {
           if (split.method === 'Cash') {
-            cashTotal += split.amount;
+            cashGross += split.amount;
             cashCount++;
           } else if (split.method === 'Bank Transfer') {
-            transferTotal += split.amount;
+            transferGross += split.amount;
             transferCount++;
           } else if (split.method === 'POS' || split.method === 'Debit/Credit Card') {
-            posTotal += split.amount;
+            posGross += split.amount;
             posCount++;
           } else {
-            otherTotal += split.amount;
+            otherGross += split.amount;
             otherCount++;
           }
         });
       } else {
         if (s.payment_method === 'Cash') {
-          cashTotal += s.final_amount;
+          cashGross += s.final_amount;
           cashCount++;
         } else if (s.payment_method === 'Bank Transfer') {
-          transferTotal += s.final_amount;
+          transferGross += s.final_amount;
           transferCount++;
         } else if (s.payment_method === 'POS' || s.payment_method === 'Debit/Credit Card') {
-          posTotal += s.final_amount;
+          posGross += s.final_amount;
           posCount++;
         } else if (s.payment_method === 'Split Payment') {
           splitTxCount++;
           splitTotalAmount += s.final_amount;
-          cashTotal += s.final_amount;
+          cashGross += s.final_amount;
           cashCount++;
         } else {
-          otherTotal += s.final_amount;
+          otherGross += s.final_amount;
           otherCount++;
         }
       }
     });
 
-    const totalReconciled = cashTotal + transferTotal + posTotal + otherTotal;
+    let cashRefunded = 0;
+    let posRefunded = 0;
+    let transferRefunded = 0;
+    let otherRefunded = 0;
+
+    relevantRefunds.forEach(r => {
+      if (r.settlement_type === 'CASH' || r.payment_method === 'Cash') {
+        cashRefunded += r.refund_amount;
+      } else if (r.settlement_type === 'POS_TERMINAL' || r.payment_method === 'POS') {
+        posRefunded += r.refund_amount;
+      } else if (r.settlement_type === 'BANK_TRANSFER' || r.payment_method === 'Bank Transfer') {
+        transferRefunded += r.refund_amount;
+      } else {
+        otherRefunded += r.refund_amount;
+      }
+    });
+
+    const cashNet = Math.max(0, cashGross - cashRefunded);
+    const transferNet = Math.max(0, transferGross - transferRefunded);
+    const posNet = Math.max(0, posGross - posRefunded);
+    const otherNet = Math.max(0, otherGross - otherRefunded);
+    const totalReconciled = cashNet + transferNet + posNet + otherNet;
 
     return {
       cash: {
-        amount: cashTotal,
+        gross: cashGross,
+        refunded: cashRefunded,
+        amount: cashNet,
         count: cashCount,
-        percentage: totalReconciled > 0 ? Math.round((cashTotal / totalReconciled) * 100) : 0,
-        avgTicket: cashCount > 0 ? Math.round(cashTotal / cashCount) : 0,
+        percentage: totalReconciled > 0 ? Math.round((cashNet / totalReconciled) * 100) : 0,
+        avgTicket: cashCount > 0 ? Math.round(cashNet / cashCount) : 0,
       },
       transfer: {
-        amount: transferTotal,
+        gross: transferGross,
+        refunded: transferRefunded,
+        amount: transferNet,
         count: transferCount,
-        percentage: totalReconciled > 0 ? Math.round((transferTotal / totalReconciled) * 100) : 0,
-        avgTicket: transferCount > 0 ? Math.round(transferTotal / transferCount) : 0,
+        percentage: totalReconciled > 0 ? Math.round((transferNet / totalReconciled) * 100) : 0,
+        avgTicket: transferCount > 0 ? Math.round(transferNet / transferCount) : 0,
       },
       pos: {
-        amount: posTotal,
+        gross: posGross,
+        refunded: posRefunded,
+        amount: posNet,
         count: posCount,
-        percentage: totalReconciled > 0 ? Math.round((posTotal / totalReconciled) * 100) : 0,
-        avgTicket: posCount > 0 ? Math.round(posTotal / posCount) : 0,
+        percentage: totalReconciled > 0 ? Math.round((posNet / totalReconciled) * 100) : 0,
+        avgTicket: posCount > 0 ? Math.round(posNet / posCount) : 0,
       },
       other: {
-        amount: otherTotal,
+        gross: otherGross,
+        refunded: otherRefunded,
+        amount: otherNet,
         count: otherCount,
-        percentage: totalReconciled > 0 ? Math.round((otherTotal / totalReconciled) * 100) : 0,
-        avgTicket: otherCount > 0 ? Math.round(otherTotal / otherCount) : 0,
+        percentage: totalReconciled > 0 ? Math.round((otherNet / totalReconciled) * 100) : 0,
+        avgTicket: otherCount > 0 ? Math.round(otherNet / otherCount) : 0,
       },
       splitTransactions: {
         count: splitTxCount,
@@ -217,17 +321,22 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       },
       totalReconciled,
     };
-  }, [relevantSales]);
+  }, [relevantSales, relevantRefunds]);
 
-  // Cashier Payment Breakdown Matrix (reconcile each staff member's cash, transfer, and POS takings)
+  // Cashier Payment Breakdown Matrix (reconcile each staff member's cash, transfer, and POS takings, minus refunds)
   const cashierPaymentBreakdown = useMemo(() => {
     return employees.map(emp => {
       const empSales = relevantSales.filter(s => s.staff_id === emp.staff_id);
-      let cash = 0;
+      const empRefunds = relevantRefunds.filter(r => {
+        const orig = sales.find(s => s.transaction_id === r.original_transaction_id);
+        return orig && orig.staff_id === emp.staff_id;
+      });
+
+      let cashGross = 0;
       let cashCount = 0;
-      let transfer = 0;
+      let transferGross = 0;
       let transferCount = 0;
-      let pos = 0;
+      let posGross = 0;
       let posCount = 0;
       let totalRev = 0;
 
@@ -236,79 +345,112 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         if (s.payment_splits && s.payment_splits.length > 0) {
           s.payment_splits.forEach(split => {
             if (split.method === 'Cash') {
-              cash += split.amount;
+              cashGross += split.amount;
               cashCount++;
             } else if (split.method === 'Bank Transfer') {
-              transfer += split.amount;
+              transferGross += split.amount;
               transferCount++;
             } else if (split.method === 'POS' || split.method === 'Debit/Credit Card') {
-              pos += split.amount;
+              posGross += split.amount;
               posCount++;
             }
           });
         } else {
           if (s.payment_method === 'Cash') {
-            cash += s.final_amount;
+            cashGross += s.final_amount;
             cashCount++;
           } else if (s.payment_method === 'Bank Transfer') {
-            transfer += s.final_amount;
+            transferGross += s.final_amount;
             transferCount++;
           } else if (s.payment_method === 'POS' || s.payment_method === 'Debit/Credit Card') {
-            pos += s.final_amount;
+            posGross += s.final_amount;
             posCount++;
           }
+        }
+      });
+
+      let totalRefunds = 0;
+      let cashRefunds = 0;
+      let transferRefunds = 0;
+      let posRefunds = 0;
+
+      empRefunds.forEach(r => {
+        totalRefunds += r.refund_amount;
+        if (r.settlement_type === 'CASH' || r.payment_method === 'Cash') {
+          cashRefunds += r.refund_amount;
+        } else if (r.settlement_type === 'BANK_TRANSFER' || r.payment_method === 'Bank Transfer') {
+          transferRefunds += r.refund_amount;
+        } else if (r.settlement_type === 'POS_TERMINAL' || r.payment_method === 'POS') {
+          posRefunds += r.refund_amount;
+        } else {
+          cashRefunds += r.refund_amount;
         }
       });
 
       return {
         ...emp,
         orders: empSales.length,
-        totalRev,
-        cash: { amount: cash, count: cashCount },
-        transfer: { amount: transfer, count: transferCount },
-        pos: { amount: pos, count: posCount },
+        totalRev: Math.max(0, totalRev - totalRefunds),
+        grossRev: totalRev,
+        totalRefunds,
+        cash: { amount: Math.max(0, cashGross - cashRefunds), gross: cashGross, count: cashCount },
+        transfer: { amount: Math.max(0, transferGross - transferRefunds), gross: transferGross, count: transferCount },
+        pos: { amount: Math.max(0, posGross - posRefunds), gross: posGross, count: posCount },
       };
     }).sort((a, b) => b.totalRev - a.totalRev);
-  }, [employees, relevantSales]);
+  }, [employees, relevantSales, relevantRefunds, sales]);
 
-  // POS Terminal & Bank Account Collections Breakdown
+  // POS Terminal & Bank Account Collections Breakdown (with refund deductions)
   const terminalBreakdown = useMemo(() => {
     return posTerminals.map(term => {
-      let amount = 0;
+      let grossAmount = 0;
       let count = 0;
 
       relevantSales.forEach(s => {
         if (s.pos_terminal_id === term.id) {
-          amount += s.final_amount;
+          grossAmount += s.final_amount;
           count++;
         } else if (s.payment_splits && s.payment_splits.length > 0) {
           s.payment_splits.forEach(split => {
             if (split.pos_terminal_id === term.id) {
-              amount += split.amount;
+              grossAmount += split.amount;
               count++;
             }
           });
         }
       });
 
+      let refundedAmount = 0;
+      relevantRefunds.forEach(r => {
+        if (r.pos_terminal_id === term.id) {
+          refundedAmount += r.refund_amount;
+        }
+      });
+
+      const netAmount = Math.max(0, grossAmount - refundedAmount);
+
       return {
         ...term,
         count,
-        amount,
+        grossAmount,
+        refundedAmount,
+        amount: netAmount,
       };
     }).sort((a, b) => b.amount - a.amount);
-  }, [posTerminals, relevantSales]);
+  }, [posTerminals, relevantSales, relevantRefunds]);
 
   // Cash Reconciliation Drawer Summary
   const cashReconciliationSummary = useMemo(() => {
     const drawers = getCashierDrawerSummary();
     const totalInHand = drawers.reduce((sum, d) => sum + d.current_cash_in_hand, 0);
     const totalCollected = drawers.reduce((sum, d) => sum + d.total_cash_collected, 0);
+    const totalRefunded = drawers.reduce((sum, d) => sum + d.total_cash_refunded, 0);
     const totalTransferred = cashTransfers.reduce((sum, t) => sum + t.amount_transferred, 0);
     return {
       drawers,
       totalInHand,
       totalCollected,
+      totalRefunded,
       totalTransferred,
     };
   }, [getCashierDrawerSummary, cashTransfers]);
@@ -484,74 +626,126 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         
-        {/* Card 1: Total Revenue */}
+        {/* Card 1: Net Sales Revenue */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span>Total Sales Revenue</span>
+            <span className="font-semibold text-slate-700">Net Sales Revenue</span>
             <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-black text-slate-950 font-mono">
-            ₦{totalRevenue.toLocaleString()}
+            ₦{netRevenue.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500">
-            {relevantSales.length} Transactions • Avg ₦{averageOrderValue.toLocaleString()}
+          <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-slate-100">
+            <span className="text-slate-500">Gross: ₦{grossRevenue.toLocaleString()}</span>
+            {totalRefundAmount > 0 ? (
+              <span className="text-rose-600 font-bold font-mono text-[10px] bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                -₦{totalRefundAmount.toLocaleString()} ({totalRefundCount} ref)
+              </span>
+            ) : (
+              <span className="text-slate-400 font-mono text-[10px]">0 Returns</span>
+            )}
           </div>
         </div>
 
         {/* Card 2: Gross Profit */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span>Gross Profit</span>
+            <span className="font-semibold text-slate-700">Realized Gross Profit</span>
             <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-black text-emerald-700 font-mono">
             ₦{grossProfit.toLocaleString()}
           </div>
-          <div className="text-[11px] text-emerald-600 font-semibold">
-            {profitMargin}% Overall Profit Margin
+          <div className="text-[11px] text-emerald-600 font-semibold pt-1 border-t border-slate-100">
+            {profitMargin}% Net Margin (after returns)
           </div>
         </div>
 
         {/* Card 3: Cost of Goods Sold */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span>Total COGS (Wholesale)</span>
+            <span className="font-semibold text-slate-700">Net COGS (Restocked)</span>
             <ShoppingBag className="w-4 h-4 text-slate-400" />
           </div>
           <div className="text-2xl font-black text-slate-700 font-mono">
-            ₦{totalCogs.toLocaleString()}
+            ₦{netCogs.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500">
-            {totalQuantitySold} KG Fish Dispatched
+          <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+            {netQuantitySold} KG Net Dispatched {totalQuantityReturned > 0 ? `(+${totalQuantityReturned} KG returned)` : ''}
           </div>
         </div>
 
         {/* Card 4: Inventory Alerts */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span>Inventory Risks</span>
+            <span className="font-semibold text-slate-700">Inventory Risks</span>
             <AlertTriangle className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-2xl font-black text-amber-600 font-mono">
             {lowStockProducts.length + expiringProducts.length}
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-100">
             {lowStockProducts.length} Low Stock • {expiringProducts.length} Expiring Soon
           </div>
         </div>
 
       </div>
 
+      {/* Dynamic Customer Returns & Refund Financial Reconciliation Banner */}
+      <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-slate-950 border border-rose-900/60 rounded-2xl p-4 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+            <RotateCcw className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-bold text-white">Customer Returns & Refund Financial Reconciliation</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold border ${
+                totalRefundAmount > 0 
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' 
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+              }`}>
+                {totalRefundCount} Processed Refunds
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Refunds are automatically subtracted from Gross Sales to produce 100% accurate Net Sales and P&L. Returned stock is restored to cold room inventory.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 self-end md:self-center shrink-0 text-xs">
+          <div className="text-right bg-slate-800/60 px-3 py-1.5 rounded-xl border border-slate-700/60">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Gross Sales</span>
+            <span className="text-xs font-bold font-mono text-slate-200">
+              ₦{grossRevenue.toLocaleString()}
+            </span>
+          </div>
+          <div className="text-right bg-rose-950/60 px-3 py-1.5 rounded-xl border border-rose-800/60">
+            <span className="text-[10px] text-rose-300 uppercase tracking-wider block">Refunded Deductions</span>
+            <span className="text-xs font-bold font-mono text-rose-400">
+              -₦{totalRefundAmount.toLocaleString()}
+            </span>
+          </div>
+          <div className="text-right bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-800/60">
+            <span className="text-[10px] text-emerald-300 uppercase tracking-wider block">Net Sales Settled</span>
+            <span className="text-sm font-black font-mono text-emerald-400">
+              ₦{netRevenue.toLocaleString()}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Order Cancellation & Void Integrity Reconciliation Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
         <div className="flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
             <ShieldCheck className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-bold text-white">Order Void & Aborted Checkout Reconciliation</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-mono font-bold border border-rose-500/30">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/30">
                 {voidedOrders.length} Aborted Orders
               </span>
             </div>
@@ -564,7 +758,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         <div className="flex items-center space-x-4 self-end md:self-center shrink-0">
           <div className="text-right">
             <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Voided Potential</span>
-            <span className="text-sm font-bold font-mono text-rose-400">
+            <span className="text-sm font-bold font-mono text-amber-400">
               ₦{voidedOrders.reduce((sum, v) => sum + v.total_amount, 0).toLocaleString()}
             </span>
           </div>
