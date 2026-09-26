@@ -134,10 +134,11 @@ export type UserRole = 'Cashier' | 'Supervisor' | 'Manager' | 'Admin';
 export interface Employee {
   staff_id: string; // STAFF-001
   staff_name: string;
-  username?: string; // e.g. kola, ibrahim, chidinma, alex
+  username?: string; // e.g. kola, ibrahim, chidinma, alex, admin
+  password?: string; // e.g. admin123
   phone_number: string;
   role: UserRole;
-  pin: string; // 4-digit security PIN for authorization
+  pin: string; // security PIN / password for authorization
   shift_time: 'Morning' | 'Afternoon' | 'Full Day';
   date_hired: string;
   status: 'Active' | 'Inactive';
@@ -187,6 +188,83 @@ export interface StockTransferRecord {
   notes?: string;
 }
 
+export interface CartItem extends SaleItem {
+  maxAvailable: number;
+}
+
+export interface ActiveWalkInOrder {
+  id: string; // e.g. ORD-1727289123-1
+  orderNumber: number;
+  label: string; // e.g. "Walk-in #1", "Customer A - Catfish"
+  customerId: string;
+  cart: CartItem[];
+  customDiscount: number;
+  customDiscountReason: string;
+  discountAuthorizedBy: string | null;
+  paymentMode: 'single' | 'split';
+  selectedPaymentMethod: PaymentMethod;
+  cashTendered: string;
+  singleRef: string;
+  splitCashAmount: string;
+  splitCashTendered: string;
+  splitSecondMethod: 'Bank Transfer' | 'POS';
+  splitSecondAmount: string;
+  splitSecondRef: string;
+  splitThirdMethod: 'POS' | 'Bank Transfer' | null;
+  splitThirdAmount: string;
+  splitThirdRef: string;
+  createdAt: string;
+}
+
+export interface ParkedOrder {
+  order_id: string; // e.g. ORD-1727289123-1
+  order_number: number;
+  order_label: string; // e.g. "Walk-in #1", "Customer A - Catfish", "Waiting for ATM"
+  created_at: string;
+  parked_at?: string;
+  park_reason?: string;
+  customer_id: string;
+  customer_name?: string;
+  items: CartItem[];
+  customDiscount: number;
+  customDiscountReason: string;
+  discountAuthorizedBy: string | null;
+  paymentMode: 'single' | 'split';
+  selectedPaymentMethod: PaymentMethod;
+  cashTendered: string;
+  singleRef: string;
+  splitCashAmount: string;
+  splitCashTendered: string;
+  splitSecondMethod: 'Bank Transfer' | 'POS';
+  splitSecondAmount: string;
+  splitSecondRef: string;
+  splitThirdMethod: 'POS' | 'Bank Transfer' | null;
+  splitThirdAmount: string;
+  splitThirdRef: string;
+  staff_id: string;
+  staff_name: string;
+  status: 'ACTIVE' | 'PARKED';
+}
+
+export interface VoidedOrderRecord {
+  void_id: string; // VOID-20260925-001
+  order_id: string;
+  order_label: string;
+  customer_id: string;
+  customer_name: string;
+  items: SaleItem[];
+  subtotal: number;
+  discount_applied: number;
+  total_amount: number;
+  void_reason: string; // e.g. "Customer walked away", "Payment declined", "Cashier error", etc.
+  void_notes?: string;
+  voided_by_staff_id: string;
+  voided_by_staff_name: string;
+  voided_by_role: UserRole;
+  date_time: string;
+  restored_to_inventory: boolean;
+}
+
 export type AuditCategory = 
   | 'Sales' 
   | 'Refunds' 
@@ -202,6 +280,9 @@ export type AuditSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT';
 
 export type AuditAction = 
   | 'SALE_COMPLETED'
+  | 'ORDER_PARKED'
+  | 'ORDER_RESUMED'
+  | 'ORDER_VOIDED'
   | 'REFUND_PROCESSED'
   | 'GOODS_RECEIVED'
   | 'CYCLE_COUNT_ADJUSTED'

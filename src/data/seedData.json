@@ -470,6 +470,77 @@
         "amount": 8000
       },
       "tamper_hash": "5b4a3210fa1b2c3d4"
+    },
+    {
+      "id": "AUD-20260922-0006",
+      "timestamp": "2026-09-22 13:20:10",
+      "staff_id": "STAFF-001",
+      "staff_name": "Kola",
+      "role": "Cashier",
+      "category": "Sales",
+      "action": "ORDER_VOIDED",
+      "details": "Aborted walk-in order ORD-20260922-042 (2 items, ₦24,500). Cashier: Kola. Reason: Customer walked away / abandoned basket. Inventory verification restored.",
+      "severity": "WARNING",
+      "metadata": {
+        "order_id": "ORD-20260922-042",
+        "void_id": "VOID-20260922-001",
+        "amount": 24500,
+        "reason": "Customer walked away / abandoned basket",
+        "pattern_type": "ORDER_VOID"
+      },
+      "tamper_hash": "4a3210fa1b2c3d4e5"
+    },
+    {
+      "id": "AUD-20260922-0007",
+      "timestamp": "2026-09-22 14:15:30",
+      "staff_id": "STAFF-003",
+      "staff_name": "Ibrahim",
+      "role": "Supervisor",
+      "category": "CycleCount",
+      "action": "CYCLE_COUNT_ADJUSTED",
+      "details": "Physical Cycle Count CC-20260921-001 on Fresh Live Catfish (FISH-00045): System had 24 KG, counted 22 KG (Variance: -2 KG). Stock adjusted: YES. Supervisor: Ibrahim. Reason: Water evaporation & scale calibration.",
+      "severity": "WARNING",
+      "metadata": {
+        "count_id": "CC-20260921-001",
+        "item_sn": "FISH-00045",
+        "variance": -2,
+        "adjustStock": true,
+        "pattern_type": "INVENTORY_ANOMALY"
+      },
+      "tamper_hash": "3210fa1b2c3d4e5f6"
+    },
+    {
+      "id": "AUD-20260922-0008",
+      "timestamp": "2026-09-22 15:45:00",
+      "staff_id": "STAFF-001",
+      "staff_name": "Kola",
+      "role": "Cashier",
+      "category": "Security",
+      "action": "PERMISSION_DENIED",
+      "details": "User Kola attempted to execute Master Stock Deletion without Admin privileges. Access blocked and logged.",
+      "severity": "ALERT",
+      "metadata": {
+        "target_action": "DELETE_INVENTORY",
+        "pattern_type": "SECURITY_BREACH"
+      },
+      "tamper_hash": "210fa1b2c3d4e5f67"
+    },
+    {
+      "id": "AUD-20260922-0009",
+      "timestamp": "2026-09-22 16:10:45",
+      "staff_id": "STAFF-004",
+      "staff_name": "Chidinma",
+      "role": "Manager",
+      "category": "Security",
+      "action": "MANAGER_OVERRIDE",
+      "details": "Manager Chidinma authorized 15% custom discount override on wholesale invoice TXN-20260922-099. Reason: Bulk restaurant buyer rate.",
+      "severity": "WARNING",
+      "metadata": {
+        "discount_percent": 15,
+        "approved_by": "STAFF-004",
+        "pattern_type": "MANAGER_OVERRIDE"
+      },
+      "tamper_hash": "10fa1b2c3d4e5f678"
     }
   ],
   "cycleCounts": [

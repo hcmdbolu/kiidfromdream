@@ -28,6 +28,8 @@ interface CentralDatabase {
   auditLogs: any[];
   cycleCounts: any[];
   stockTransfers: any[];
+  parkedOrders: any[];
+  voidedOrders: any[];
 }
 
 // In-memory Database instance
@@ -63,6 +65,8 @@ function loadDatabase(): CentralDatabase {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.sales) && Array.isArray(parsed.products)) {
+        if (!Array.isArray(parsed.parkedOrders)) parsed.parkedOrders = [];
+        if (!Array.isArray(parsed.voidedOrders)) parsed.voidedOrders = [];
         return parsed;
       }
     }
@@ -87,6 +91,8 @@ function loadDatabase(): CentralDatabase {
       auditLogs: seed.auditLogs || [],
       cycleCounts: seed.cycleCounts || [],
       stockTransfers: seed.stockTransfers || [],
+      parkedOrders: seed.parkedOrders || [],
+      voidedOrders: seed.voidedOrders || [],
     };
     saveDatabase(initialDb);
     return initialDb;
@@ -105,6 +111,8 @@ function loadDatabase(): CentralDatabase {
       auditLogs: [],
       cycleCounts: [],
       stockTransfers: [],
+      parkedOrders: [],
+      voidedOrders: [],
     };
   }
 }
@@ -357,6 +365,90 @@ app.post('/api/refunds', (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error('Error in /api/refunds:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
+// 6b. Park or Update Held Order
+app.post('/api/orders/park', (req: Request, res: Response) => {
+  try {
+    const { order, action } = req.body;
+    if (!order || !order.order_id) {
+      return res.status(400).json({ success: false, error: 'Order data is required' });
+    }
+
+    if (action === 'DELETE' || action === 'RESUME') {
+      db.parkedOrders = db.parkedOrders.filter(o => o.order_id !== order.order_id);
+    } else {
+      const idx = db.parkedOrders.findIndex(o => o.order_id === order.order_id);
+      if (idx !== -1) {
+        db.parkedOrders[idx] = { ...db.parkedOrders[idx], ...order };
+      } else {
+        db.parkedOrders.unshift(order);
+      }
+    }
+
+    saveDatabase();
+    broadcast('PARKED_ORDERS_UPDATED', { parkedOrders: db.parkedOrders });
+
+    res.json({
+      success: true,
+      parkedOrders: db.parkedOrders,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/orders/park:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
+// 6c. Record Voided / Aborted Order (with Reason and Inventory Integrity Protection)
+app.post('/api/orders/void', (req: Request, res: Response) => {
+  try {
+    const { voidRecord } = req.body;
+    if (!voidRecord || !voidRecord.void_id) {
+      return res.status(400).json({ success: false, error: 'Void record is required' });
+    }
+
+    // Remove from parked if it was parked
+    if (voidRecord.order_id) {
+      db.parkedOrders = db.parkedOrders.filter(o => o.order_id !== voidRecord.order_id);
+    }
+
+    // Add to voided orders list
+    db.voidedOrders.unshift(voidRecord);
+
+    // Audit log
+    db.auditLogs.unshift({
+      id: `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      timestamp: voidRecord.date_time || new Date().toISOString(),
+      staff_id: voidRecord.voided_by_staff_id || 'STAFF',
+      staff_name: voidRecord.voided_by_staff_name || 'Staff',
+      staff_role: voidRecord.voided_by_role || 'Cashier',
+      category: 'Sales',
+      action: 'ORDER_VOIDED',
+      details: `Voided order ${voidRecord.order_label} (₦${voidRecord.total_amount?.toLocaleString()}). Reason: ${voidRecord.void_reason}. Notes: ${voidRecord.void_notes || 'None'}`,
+      severity: 'WARNING',
+      hash: `hash_${Date.now()}`,
+    });
+
+    saveDatabase();
+    broadcast('ORDER_VOIDED_UPDATE', { 
+      voidRecord, 
+      voidedOrders: db.voidedOrders, 
+      parkedOrders: db.parkedOrders,
+      auditLogs: db.auditLogs 
+    });
+
+    res.json({
+      success: true,
+      voidRecord,
+      voidedOrders: db.voidedOrders,
+      parkedOrders: db.parkedOrders,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/orders/void:', err);
     res.status(500).json({ success: false, error: err.message || 'Internal server error' });
   }
 });
@@ -643,6 +735,8 @@ app.post('/api/admin/import', (req: Request, res: Response) => {
       auditLogs: backup.auditLogs || [],
       cycleCounts: backup.cycleCounts || [],
       stockTransfers: backup.stockTransfers || [],
+      parkedOrders: backup.parkedOrders || [],
+      voidedOrders: backup.voidedOrders || [],
     };
 
     saveDatabase(db);

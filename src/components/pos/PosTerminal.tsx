@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { usePos } from '../../context/PosContext';
-import { ProductCategory, PaymentMethod, SplitPaymentDetail, Product, Employee } from '../../types';
+import { ProductCategory, PaymentMethod, SplitPaymentDetail, Product, Employee, ActiveWalkInOrder, ParkedOrder } from '../../types';
 import { 
   Search, 
   Plus, 
@@ -26,10 +26,18 @@ import {
   Split,
   Layers,
   Calculator,
-  HelpCircle
+  HelpCircle,
+  PauseCircle,
+  Clock,
+  Users,
+  PlayCircle,
+  X
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { WeightModal } from './WeightModal';
+import { ParkedOrdersModal } from './ParkedOrdersModal';
+import { ParkOrderPromptModal } from './ParkOrderPromptModal';
+import { VoidOrderModal } from './VoidOrderModal';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
@@ -58,7 +66,24 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
     processCheckout,
     activeStaff,
     hasPermission,
+    activeOrders,
+    activeOrderId,
+    createWalkInOrder,
+    switchActiveOrder,
+    closeOrderTab,
+    updateOrderLabel,
+    parkedOrders,
+    parkActiveOrder,
+    resumeParkedOrder,
+    voidedOrders,
+    cancelAndVoidOrder,
   } = usePos();
+
+  // Multi-Order & Walk-in Queue Modals
+  const [isParkPromptOpen, setIsParkPromptOpen] = useState(false);
+  const [isParkedListOpen, setIsParkedListOpen] = useState(false);
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [orderForVoidModal, setOrderForVoidModal] = useState<ActiveWalkInOrder | ParkedOrder | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -318,7 +343,122 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
   const now = new Date();
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+      
+      {/* MULTI-ORDER & WALK-IN QUEUING WORKSPACE BAR */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        {/* Active Walk-in Tabs */}
+        <div className="flex items-center space-x-2 overflow-x-auto pb-1 md:pb-0 flex-1">
+          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pl-1 pr-2 flex items-center space-x-1 shrink-0">
+            <Users className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Walk-Ins:</span>
+          </div>
+
+          {activeOrders.map(order => {
+            const isActive = order.id === activeOrderId;
+            const orderItemsCount = order.id === activeOrderId ? cart.length : (order.cart?.length || 0);
+            const orderTotal = order.id === activeOrderId ? cartFinalTotal : (order.cart?.reduce((a, b) => a + b.total_amount, 0) || 0);
+
+            return (
+              <div
+                key={order.id}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+                  isActive
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                }`}
+                onClick={() => switchActiveOrder(order.id)}
+              >
+                <span className="font-bold">{order.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  isActive ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {orderItemsCount} items • ₦{orderTotal.toLocaleString()}
+                </span>
+                {activeOrders.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (orderItemsCount > 0) {
+                        setOrderForVoidModal(order);
+                        setIsVoidModalOpen(true);
+                      } else {
+                        closeOrderTab(order.id);
+                      }
+                    }}
+                    className={`p-0.5 rounded-full hover:bg-black/10 transition-colors ${
+                      isActive ? 'text-white/80 hover:text-white' : 'text-slate-400 hover:text-rose-600'
+                    }`}
+                    title="Close or Void walk-in tab"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {/* New Walk-In Order Button */}
+          <button
+            type="button"
+            onClick={() => createWalkInOrder()}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-dashed border-emerald-400 hover:border-emerald-600 text-emerald-700 bg-emerald-50/60 hover:bg-emerald-50 text-xs font-semibold transition-all shrink-0 cursor-pointer"
+            title="Open another walk-in customer checkout tab simultaneously"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ New Walk-in</span>
+          </button>
+        </div>
+
+        {/* Queue Control Buttons: Hold / Park, View Held, Void Order */}
+        <div className="flex items-center space-x-2 shrink-0">
+          {/* Park / Hold Current Order */}
+          <button
+            type="button"
+            onClick={() => setIsParkPromptOpen(true)}
+            disabled={cart.length === 0}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-xs cursor-pointer"
+            title="Hold/Pause Customer A order to take Customer B"
+          >
+            <PauseCircle className="w-3.5 h-3.5 text-amber-600" />
+            <span>Hold / Park Order</span>
+          </button>
+
+          {/* View Parked Orders Queue Button */}
+          <button
+            type="button"
+            onClick={() => setIsParkedListOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-xs relative cursor-pointer"
+            title="View all held orders awaiting customer return"
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Held Orders</span>
+            {parkedOrders.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 font-mono font-bold text-[10px]">
+                {parkedOrders.length}
+              </span>
+            )}
+          </button>
+
+          {/* Dedicated Void / Cancel Order Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const cur = activeOrders.find(o => o.id === activeOrderId);
+              setOrderForVoidModal(cur || null);
+              setIsVoidModalOpen(true);
+            }}
+            disabled={cart.length === 0}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Abort order and log cancellation reason with inventory integrity"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+            <span>Void Order</span>
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Left Section: Product Catalogue & Search (7 Cols) */}
@@ -553,20 +693,49 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                     <Receipt className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-slate-900 text-sm">Order Summary</h3>
+                    <h3 className="font-bold text-slate-900 text-sm flex items-center space-x-1.5">
+                      <span>{activeOrders.find(o => o.id === activeOrderId)?.label || 'Order Summary'}</span>
+                      <span className="text-[9px] font-mono px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold uppercase">Active</span>
+                    </h3>
                     <p className="text-[11px] text-slate-500">{cart.length} item(s) • {cartTotalQuantity} unit(s)</p>
                   </div>
                 </div>
 
-                {cart.length > 0 && (
-                  <button
-                    onClick={clearCart}
-                    className="text-xs text-rose-600 hover:text-rose-700 hover:underline flex items-center space-x-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    <span>Clear</span>
-                  </button>
-                )}
+                <div className="flex items-center space-x-1.5">
+                  {cart.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsParkPromptOpen(true)}
+                        className="text-xs text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-1 rounded-lg font-semibold flex items-center space-x-1 transition-colors"
+                        title="Hold/Pause order"
+                      >
+                        <PauseCircle className="w-3.5 h-3.5" />
+                        <span>Hold</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cur = activeOrders.find(o => o.id === activeOrderId);
+                          setOrderForVoidModal(cur || null);
+                          setIsVoidModalOpen(true);
+                        }}
+                        className="text-xs text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1 rounded-lg font-semibold flex items-center space-x-1 transition-colors"
+                        title="Cancel & Void order"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Void</span>
+                      </button>
+                      <button
+                        onClick={clearCart}
+                        className="text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors"
+                        title="Clear basket items"
+                      >
+                        Clear
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Customer Selector Box */}
@@ -1337,6 +1506,32 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
         product={weighingProduct}
         currentQuantity={weighingInitialQty}
         onConfirm={handleConfirmWeight}
+      />
+
+      {/* Hold / Park Order Prompt Dialog */}
+      <ParkOrderPromptModal
+        isOpen={isParkPromptOpen}
+        onClose={() => setIsParkPromptOpen(false)}
+      />
+
+      {/* Held / Parked Walk-In Orders List Modal */}
+      <ParkedOrdersModal
+        isOpen={isParkedListOpen}
+        onClose={() => setIsParkedListOpen(false)}
+      />
+
+      {/* Dedicated Void / Cancel Order Modal */}
+      <VoidOrderModal
+        isOpen={isVoidModalOpen}
+        order={orderForVoidModal}
+        onClose={() => {
+          setIsVoidModalOpen(false);
+          setOrderForVoidModal(null);
+        }}
+        onVoidConfirmed={() => {
+          setIsVoidModalOpen(false);
+          setOrderForVoidModal(null);
+        }}
       />
     </div>
   );

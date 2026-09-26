@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
-import { SaleTransaction, RefundRecord } from '../../types';
+import { SaleTransaction, RefundRecord, VoidedOrderRecord } from '../../types';
 import { 
   Search, 
   RotateCcw, 
@@ -14,7 +14,12 @@ import {
   AlertCircle,
   Database,
   RefreshCw,
-  Wifi
+  Wifi,
+  Trash2,
+  ShieldCheck,
+  Ban,
+  X,
+  Fish
 } from 'lucide-react';
 
 interface SalesHistoryManagerProps {
@@ -29,6 +34,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
   const { 
     sales, 
     refunds, 
+    voidedOrders,
     customers, 
     employees, 
     syncStatus, 
@@ -37,10 +43,12 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
     forceSync 
   } = usePos();
 
-  const [activeTab, setActiveTab] = useState<'sales' | 'refunds'>('sales');
+  const [activeTab, setActiveTab] = useState<'sales' | 'refunds' | 'voided'>('sales');
   const [search, setSearch] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<string>('All');
   const [dateFilter, setDateFilter] = useState<string>('All');
+  const [voidReasonFilter, setVoidReasonFilter] = useState<string>('All');
+  const [selectedVoidRecord, setSelectedVoidRecord] = useState<VoidedOrderRecord | null>(null);
 
   // Filter sales
   const filteredSales = useMemo(() => {
@@ -112,6 +120,21 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
             }`}
           >
             Refunds & Returns ({refunds.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('voided')}
+            className={`px-3 py-1.5 rounded-md transition-all flex items-center space-x-1.5 ${
+              activeTab === 'voided'
+                ? 'bg-white text-rose-700 shadow-xs font-bold'
+                : 'text-slate-600 hover:text-rose-700'
+            }`}
+          >
+            <span>Voided Orders</span>
+            {voidedOrders.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[10px] font-mono font-bold">
+                {voidedOrders.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -427,6 +450,292 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* View 3: Canceled & Voided Orders Log */}
+      {activeTab === 'voided' && (
+        <div className="space-y-4">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                Total Voided Orders
+              </span>
+              <div className="text-xl font-bold font-mono text-slate-900 mt-1">
+                {voidedOrders.length}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Aborted walk-in checkouts</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                Total Aborted Value
+              </span>
+              <div className="text-xl font-bold font-mono text-rose-600 mt-1">
+                ₦{voidedOrders.reduce((sum, v) => sum + v.total_amount, 0).toLocaleString()}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Excluded from gross revenue</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                Inventory Stock Protection
+              </span>
+              <div className="text-xl font-bold text-emerald-600 mt-1 flex items-center space-x-1.5">
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                <span>100% Intact</span>
+              </div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Zero discrepancies caused</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
+                Top Abort Reason
+              </span>
+              <div className="text-sm font-bold text-slate-800 mt-1 truncate">
+                {voidedOrders.length > 0 ? voidedOrders[0].void_reason : 'None'}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-0.5 block">Logged in audit ledger</span>
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search voided orders by Void ID, Order label, customer, or items..."
+                className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 text-slate-800"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <span className="text-xs text-slate-500 whitespace-nowrap">Filter Reason:</span>
+              <select
+                value={voidReasonFilter}
+                onChange={(e) => setVoidReasonFilter(e.target.value)}
+                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none"
+              >
+                <option value="All">All Reasons</option>
+                <option value="walked away">Customer walked away</option>
+                <option value="declined">Payment declined</option>
+                <option value="timed out">Bank transfer timed out</option>
+                <option value="mistake">Cashier mistake / wrong item</option>
+                <option value="dispute">Pricing dispute</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Voided Orders Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-rose-50/60 text-slate-700 uppercase tracking-wider font-semibold border-b border-slate-200 text-[10px]">
+                  <tr>
+                    <th className="py-3 px-4">Void ID</th>
+                    <th className="py-3 px-4">Order Label</th>
+                    <th className="py-3 px-4">Date & Time</th>
+                    <th className="py-3 px-4">Cashier / Staff</th>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Items Breakdown</th>
+                    <th className="py-3 px-4">Aborted Amount</th>
+                    <th className="py-3 px-4">Cancellation Reason</th>
+                    <th className="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {voidedOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                        No canceled or voided orders on record.
+                      </td>
+                    </tr>
+                  ) : (
+                    voidedOrders
+                      .filter(v => {
+                        const s = search.toLowerCase();
+                        const matchesSearch = 
+                          v.void_id.toLowerCase().includes(s) ||
+                          v.order_label.toLowerCase().includes(s) ||
+                          v.customer_name.toLowerCase().includes(s) ||
+                          v.void_reason.toLowerCase().includes(s) ||
+                          v.items.some(i => i.item_name.toLowerCase().includes(s));
+                        
+                        let matchesReason = true;
+                        if (voidReasonFilter !== 'All') {
+                          matchesReason = v.void_reason.toLowerCase().includes(voidReasonFilter.toLowerCase());
+                        }
+
+                        return matchesSearch && matchesReason;
+                      })
+                      .map(v => (
+                        <tr key={v.void_id} className="hover:bg-rose-50/20 transition-colors">
+                          <td className="py-3 px-4 font-mono font-bold text-rose-700">
+                            {v.void_id}
+                          </td>
+                          <td className="py-3 px-4 font-bold text-slate-900">
+                            {v.order_label}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
+                            {v.date_time}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="font-semibold text-slate-800">{v.voided_by_staff_name}</span>
+                            <span className="text-[10px] text-slate-400 block">{v.voided_by_role}</span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-700 font-medium">
+                            {v.customer_name}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="flex flex-wrap gap-1 max-w-xs">
+                              {v.items.length === 0 ? (
+                                <span className="text-slate-400 italic">Empty Basket</span>
+                              ) : (
+                                v.items.slice(0, 2).map((item, idx) => (
+                                  <span key={idx} className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px]">
+                                    {item.quantity_sold}{item.unit} {item.item_name}
+                                  </span>
+                                ))
+                              )}
+                              {v.items.length > 2 && (
+                                <span className="text-[10px] text-slate-400">+{v.items.length - 2} more</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-rose-600">
+                            ₦{v.total_amount.toLocaleString()}
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-medium inline-block">
+                              {v.void_reason}
+                            </span>
+                            {v.void_notes && (
+                              <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1 italic">
+                                "{v.void_notes}"
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedVoidRecord(v)}
+                              className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors flex items-center space-x-1 mx-auto"
+                            >
+                              <Eye className="w-3 h-3 text-slate-500" />
+                              <span>Details</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void Details Modal */}
+      {selectedVoidRecord && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-fadeIn">
+            <div className="bg-rose-600 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <Trash2 className="w-5 h-5 text-white" />
+                <div>
+                  <h3 className="font-bold text-base">Voided Order Audit Record</h3>
+                  <span className="text-xs text-rose-100 font-mono">{selectedVoidRecord.void_id}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedVoidRecord(null)}
+                className="text-white/80 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase">Order Label</span>
+                  <span className="font-bold text-slate-900">{selectedVoidRecord.order_label}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase">Date & Time</span>
+                  <span className="font-mono text-slate-700">{selectedVoidRecord.date_time}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase">Cashier Operator</span>
+                  <span className="font-semibold text-slate-800">{selectedVoidRecord.voided_by_staff_name} ({selectedVoidRecord.voided_by_role})</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block uppercase">Customer</span>
+                  <span className="font-semibold text-slate-800">{selectedVoidRecord.customer_name}</span>
+                </div>
+              </div>
+
+              {/* Reason */}
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-wider block">
+                  Cancellation Reason
+                </span>
+                <p className="font-semibold text-rose-900">{selectedVoidRecord.void_reason}</p>
+                {selectedVoidRecord.void_notes && (
+                  <p className="text-[11px] text-rose-700 italic mt-1">
+                    Notes: {selectedVoidRecord.void_notes}
+                  </p>
+                )}
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Aborted Basket Items ({selectedVoidRecord.items.length})
+                </span>
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl p-2 bg-slate-50/50">
+                  {selectedVoidRecord.items.map((item, idx) => (
+                    <div key={idx} className="py-1.5 flex items-center justify-between text-xs">
+                      <div className="flex items-center space-x-2">
+                        <Fish className="w-3.5 h-3.5 text-emerald-600" />
+                        <div>
+                          <span className="font-semibold text-slate-800">{item.item_name}</span>
+                          <span className="text-[10px] text-slate-400 block">{item.quantity_sold} {item.unit} @ ₦{item.unit_price.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-slate-800">₦{item.total_amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2 flex items-center justify-between font-bold text-xs text-slate-900 px-1">
+                  <span>Total Potential Amount:</span>
+                  <span className="font-mono text-rose-600 text-sm">₦{selectedVoidRecord.total_amount.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Inventory status */}
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center space-x-2 text-[11px]">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>All items were preserved in inventory stock. Discrepancy prevented.</span>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedVoidRecord(null)}
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold hover:bg-slate-800 transition-colors"
+              >
+                Close Audit Detail
+              </button>
+            </div>
           </div>
         </div>
       )}

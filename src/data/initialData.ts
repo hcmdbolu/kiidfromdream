@@ -224,11 +224,12 @@ export const INITIAL_SUPPLIERS: Supplier[] = [
 export const INITIAL_EMPLOYEES: Employee[] = [
   {
     staff_id: 'STAFF-000',
-    staff_name: 'Alex Abiri',
-    username: 'alex',
+    staff_name: 'Alex Abiri (Admin)',
+    username: 'admin',
+    password: 'admin123',
     phone_number: '+234 800 000 0000',
     role: 'Admin',
-    pin: '9999',
+    pin: 'admin123',
     shift_time: 'Full Day',
     date_hired: '2023-01-01',
     status: 'Active',

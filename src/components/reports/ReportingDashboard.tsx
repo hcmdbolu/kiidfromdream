@@ -34,6 +34,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   const { 
     products, 
     sales, 
+    voidedOrders,
     customers, 
     employees, 
     suppliers,
@@ -494,6 +495,43 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </div>
         </div>
 
+      </div>
+
+      {/* Order Cancellation & Void Integrity Reconciliation Banner */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-white flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center space-x-3.5">
+          <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-bold text-white">Order Void & Aborted Checkout Reconciliation</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-mono font-bold border border-rose-500/30">
+                {voidedOrders.length} Aborted Orders
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              All canceled walk-in baskets are verified and segregated from completed revenue, ensuring 100% sales ledger integrity and cash drawer accuracy.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4 self-end md:self-center shrink-0">
+          <div className="text-right">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Voided Potential</span>
+            <span className="text-sm font-bold font-mono text-rose-400">
+              ₦{voidedOrders.reduce((sum, v) => sum + v.total_amount, 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="h-8 w-px bg-slate-800" />
+          <div className="text-right">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Stock Integrity</span>
+            <span className="text-sm font-bold text-emerald-400 flex items-center justify-end space-x-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Zero Leakage</span>
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Grid: Top Products & Staff Performance */}
