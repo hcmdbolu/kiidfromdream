@@ -141,8 +141,8 @@ export const StockTransferModal: React.FC<StockTransferModalProps> = ({
             </label>
             <input
               type="number"
-              step="1"
-              min="1"
+              step="any"
+              min="0.01"
               value={quantity}
               onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
               className="w-full bg-white border border-slate-300 rounded-xl p-3 text-sm font-bold font-mono text-slate-900 focus:ring-2 focus:ring-purple-500 focus:outline-hidden"

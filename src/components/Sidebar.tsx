@@ -24,7 +24,10 @@ import {
   ChevronRight,
   Activity,
   Layers,
-  Sparkles
+  Sparkles,
+  Banknote,
+  CreditCard,
+  Wallet
 } from 'lucide-react';
 import { ROLE_BADGES } from '../utils/rbac';
 
@@ -62,6 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     lowStockCount, 
     auditLogs,
     parkedOrders,
+    posTerminals,
+    cashTransfers,
     openLoginModal,
     lockTerminal,
     logout,
@@ -78,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Strict role permissions enforced:
   // - Cashier: POS sales, sales history, customer records
   // - Supervisor: + Inventory stock, receiving goods & purchase orders
-  // - Manager: + Executive Reports & P&L, Audit Trail
+  // - Manager: + Executive Reports & P&L, Audit Trail, Cash Reconciliation & POS Setup
   // - Admin: Complete control + Staff Admin
   const navSections = [
     {
@@ -117,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: 'Customer Accounts', 
           icon: Users,
           badge: null,
-          allowed: true,
+          allowed: activeStaff.role !== 'Cashier',
         },
         { 
           id: 'suppliers', 
@@ -129,8 +134,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      title: 'Intelligence & Security',
+      title: 'Treasury & Intelligence',
       items: [
+        { 
+          id: 'reconciliation', 
+          label: 'Cash Drawer & Bank Transfer', 
+          icon: Banknote, 
+          badge: cashTransfers.length > 0 ? `${cashTransfers.length} dep` : null,
+          badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
+          allowed: ['Manager', 'Admin'].includes(activeStaff.role),
+        },
+        { 
+          id: 'pos_setup', 
+          label: 'POS & Bank Account Setup', 
+          icon: CreditCard, 
+          badge: `${posTerminals.length} mapped`,
+          badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30',
+          allowed: ['Manager', 'Admin'].includes(activeStaff.role),
+        },
         { 
           id: 'reports', 
           label: 'Executive Reports & P&L', 
@@ -405,31 +426,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 )}
 
-                {/* Quick Refund / Return Button */}
-                <button
-                  type="button"
-                  onClick={onOpenRefundModal}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-rose-300 hover:bg-rose-950/30 border border-slate-800 hover:border-rose-700/50 transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <RotateCcw className="w-3.5 h-3.5 text-rose-400 group-hover:scale-110 transition-transform shrink-0" />
-                    <span className="truncate">Process Return / Refund</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 group-hover:text-rose-400/80 font-mono">Action</span>
-                </button>
+                {/* Quick Cash-to-Bank Transfer - Manager & Admin Only */}
+                {['Manager', 'Admin'].includes(activeStaff.role) && (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTab('reconciliation')}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-emerald-300 hover:bg-emerald-950/30 border border-slate-800 hover:border-emerald-700/50 transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <Banknote className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
+                      <span className="truncate">Cash-to-Bank Transfer</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400/80 font-mono">Drawer</span>
+                  </button>
+                )}
 
-                {/* Database Backup Export */}
-                <button
-                  type="button"
-                  onClick={exportBackupData}
-                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800 transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center space-x-2.5 min-w-0">
-                    <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-colors shrink-0" />
-                    <span className="truncate">Export JSON Backup</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono">Data</span>
-                </button>
+                {/* Quick Refund / Return Button - Strictly Manager & Admin Only */}
+                {(activeStaff.role === 'Manager' || activeStaff.role === 'Admin') && (
+                  <button
+                    type="button"
+                    onClick={onOpenRefundModal}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-rose-300 hover:bg-rose-950/30 border border-slate-800 hover:border-rose-700/50 transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <RotateCcw className="w-3.5 h-3.5 text-rose-400 group-hover:scale-110 transition-transform shrink-0" />
+                      <span className="truncate">Process Return / Refund</span>
+                    </div>
+                    <span className="text-[10px] text-rose-400/80 font-mono">Mgr/Admin</span>
+                  </button>
+                )}
+
+                {/* Database Backup Export - Strictly Admin Only */}
+                {activeStaff.role === 'Admin' && (
+                  <button
+                    type="button"
+                    onClick={exportBackupData}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800 transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-colors shrink-0" />
+                      <span className="truncate">Export JSON Backup</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">Admin</span>
+                  </button>
+                )}
               </div>
             </div>
 

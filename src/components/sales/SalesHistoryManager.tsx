@@ -37,15 +37,20 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
     voidedOrders,
     customers, 
     employees, 
+    activeStaff,
+    posTerminals,
     syncStatus, 
     lastSyncTime, 
     serverVersion, 
     forceSync 
   } = usePos();
 
+  const canRefund = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
+
   const [activeTab, setActiveTab] = useState<'sales' | 'refunds' | 'voided'>('sales');
   const [search, setSearch] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<string>('All');
+  const [terminalFilter, setTerminalFilter] = useState<string>('All');
   const [dateFilter, setDateFilter] = useState<string>('All');
   const [voidReasonFilter, setVoidReasonFilter] = useState<string>('All');
   const [selectedVoidRecord, setSelectedVoidRecord] = useState<VoidedOrderRecord | null>(null);
@@ -56,7 +61,10 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
       const matchSearch =
         tx.transaction_id.toLowerCase().includes(search.toLowerCase()) ||
         tx.customer_id.toLowerCase().includes(search.toLowerCase()) ||
-        (tx.item_name && tx.item_name.toLowerCase().includes(search.toLowerCase()));
+        (tx.item_name && tx.item_name.toLowerCase().includes(search.toLowerCase())) ||
+        (tx.pos_terminal_name && tx.pos_terminal_name.toLowerCase().includes(search.toLowerCase())) ||
+        (tx.bank_name && tx.bank_name.toLowerCase().includes(search.toLowerCase())) ||
+        (tx.payment_reference && tx.payment_reference.toLowerCase().includes(search.toLowerCase()));
 
       let matchPayment = true;
       if (paymentFilter !== 'All') {
@@ -73,14 +81,19 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
         }
       }
 
+      let matchTerminal = true;
+      if (terminalFilter !== 'All') {
+        matchTerminal = tx.pos_terminal_id === terminalFilter || Boolean(tx.payment_splits?.some(s => s.pos_terminal_id === terminalFilter));
+      }
+
       let matchDate = true;
       if (dateFilter === 'today') {
         matchDate = tx.date_time.startsWith('2026-09-22');
       }
 
-      return matchSearch && matchPayment && matchDate;
+      return matchSearch && matchPayment && matchTerminal && matchDate;
     });
-  }, [sales, search, paymentFilter, dateFilter]);
+  }, [sales, search, paymentFilter, terminalFilter, dateFilter]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -176,15 +189,15 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
 
       {/* Filter Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           
-          <div className="relative md:col-span-2">
+          <div className="relative lg:col-span-2">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by Transaction ID (TXN-...), customer or fish item..."
+              placeholder="Search TXN ID, customer, fish item, or POS terminal..."
               className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
             />
           </div>
@@ -200,6 +213,21 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
               <option value="Bank Transfer">Bank Transfers</option>
               <option value="POS">POS Terminal Card</option>
               <option value="Split Payment">Split Payments</option>
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={terminalFilter}
+              onChange={(e) => setTerminalFilter(e.target.value)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700"
+            >
+              <option value="All">All POS Terminals / Banks</option>
+              {posTerminals.map(term => (
+                <option key={term.id} value={term.id}>
+                  {term.name} ({term.provider})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -329,15 +357,32 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              tx.payment_method === 'Cash' 
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
-                                : tx.payment_method === 'Bank Transfer' 
-                                ? 'bg-blue-50 text-blue-800 border border-blue-200' 
-                                : 'bg-slate-100 text-slate-800 border border-slate-200'
-                            }`}>
-                              {tx.payment_method}
-                            </span>
+                            <div className="space-y-0.5">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                tx.payment_method === 'Cash' 
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                                  : tx.payment_method === 'Bank Transfer' 
+                                  ? 'bg-blue-50 text-blue-800 border border-blue-200' 
+                                  : 'bg-slate-100 text-slate-800 border border-slate-200'
+                              }`}>
+                                {tx.payment_method}
+                              </span>
+                              {tx.pos_terminal_name && (
+                                <div className="text-[10px] text-purple-700 font-medium font-mono">
+                                  {tx.pos_terminal_name}
+                                </div>
+                              )}
+                              {tx.bank_name && !tx.pos_terminal_name && (
+                                <div className="text-[10px] text-blue-700 font-medium font-mono">
+                                  {tx.bank_name}
+                                </div>
+                              )}
+                              {tx.payment_reference && tx.payment_reference !== 'CASH-DRAWER' && (
+                                <div className="text-[9px] text-slate-400 font-mono">
+                                  Ref: {tx.payment_reference}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
 
@@ -364,14 +409,16 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                               <span>Receipt</span>
                             </button>
 
-                            <button
-                              onClick={() => onOpenRefundForTx(tx)}
-                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold flex items-center space-x-1"
-                              title="Process return or item refund"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Refund</span>
-                            </button>
+                            {canRefund && (
+                              <button
+                                onClick={() => onOpenRefundForTx(tx)}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold flex items-center space-x-1"
+                                title="Process return or item refund (Manager/Admin)"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Refund</span>
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

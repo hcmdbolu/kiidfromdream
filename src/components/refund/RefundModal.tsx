@@ -9,18 +9,18 @@ interface RefundModalProps {
 }
 
 export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, onClose }) => {
-  const { sales, products, processRefund, activeStaff, hasPermission, requestOverride } = usePos();
+  const { sales, products, processRefund, activeStaff, employees } = usePos();
 
   const [selectedTxId, setSelectedTxId] = useState<string>(initialTransaction?.transaction_id || '');
   const [selectedItemSn, setSelectedItemSn] = useState<string>('');
   const [quantityToRefund, setQuantityToRefund] = useState<number>(1);
   const [reason, setReason] = useState<string>('Spoilt / Expired Fish');
-  const [supervisorPin, setSupervisorPin] = useState<string>('');
+  const [managerPin, setManagerPin] = useState<string>('');
   const [authorizedBy, setAuthorizedBy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const canDirectlyRefund = hasPermission('CAN_REFUND');
+  const isManagerOrAdmin = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
 
   // Sync selected transaction
   const currentTx = sales.find(s => s.transaction_id === selectedTxId) || initialTransaction;
@@ -51,17 +51,21 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
   const calculatedRefundAmount = quantityToRefund * unitPrice;
 
   const handleAuthorizePin = () => {
-    if (supervisorPin.length !== 4) {
-      setError('Please enter a 4-digit Supervisor/Manager PIN.');
+    if (managerPin.length !== 4) {
+      setError('Please enter a 4-digit Manager or Admin PIN.');
       return;
     }
-    const res = requestOverride(supervisorPin, `Refund for ₦${calculatedRefundAmount} on ${currentTx?.transaction_id}`);
-    if (res.success && res.authorizedBy) {
-      setAuthorizedBy(res.authorizedBy.staff_id);
-      setError(null);
-    } else {
-      setError(res.error || 'Invalid supervisor PIN.');
+    const staff = employees.find(e => e.pin === managerPin.trim());
+    if (!staff) {
+      setError('Invalid PIN entered.');
+      return;
     }
+    if (staff.role !== 'Manager' && staff.role !== 'Admin') {
+      setError(`Access Denied: ${staff.role} ${staff.staff_name} cannot authorize refunds. Only Manager (Chidinma: 4444) or Admin (Alex: 9999) can authorize customer returns.`);
+      return;
+    }
+    setAuthorizedBy(staff.staff_id);
+    setError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -79,9 +83,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
       return;
     }
 
-    // Role security check
-    if (!canDirectlyRefund && !authorizedBy) {
-      setError('Cashiers cannot issue refunds without Supervisor/Manager PIN approval.');
+    // Role security check: Strictly Manager and Admin Only
+    if (!isManagerOrAdmin && !authorizedBy) {
+      setError('Access Denied: Customer refunds are strictly restricted to Manager and Admin accounts.');
       return;
     }
 
@@ -225,44 +229,45 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                 </div>
               </div>
 
-              {/* Supervisor Authorization Box for Cashier */}
-              {!canDirectlyRefund && (
-                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
+              {/* Manager & Admin Authorization Box for Non-Manager Accounts */}
+              {!isManagerOrAdmin && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-amber-900 flex items-center space-x-1">
-                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Supervisor PIN Authorization Required</span>
+                    <span className="font-bold text-rose-900 flex items-center space-x-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>Manager / Admin Authorization Required</span>
                     </span>
                     {authorizedBy && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200">
                         ✓ Authorized
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-amber-800">
-                    Your role is <strong>Cashier</strong>. A Supervisor (Ibrahim: 3333), Manager (Chidinma: 4444), or Admin (Alex: 9999) must enter their 4-digit PIN to authorize this return.
+                  <p className="text-[11px] text-rose-800 leading-relaxed">
+                    Customer refunds are strictly restricted to <strong>Manager</strong> and <strong>Admin</strong> accounts. Cashiers and Supervisors cannot execute refunds. Please ask a Manager (Chidinma: 4444) or Admin (Alex: 9999) to authorize with their PIN.
                   </p>
                   {!authorizedBy ? (
                     <div className="flex items-center space-x-2">
                       <input
                         type="password"
                         maxLength={4}
-                        placeholder="Enter 4-digit PIN"
-                        value={supervisorPin}
-                        onChange={(e) => setSupervisorPin(e.target.value)}
-                        className="bg-white border border-amber-300 rounded-lg px-3 py-1.5 font-mono text-center font-bold tracking-widest text-xs flex-1 focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        placeholder="Manager / Admin PIN"
+                        value={managerPin}
+                        onChange={(e) => setManagerPin(e.target.value)}
+                        className="bg-white border border-rose-300 rounded-lg px-3 py-1.5 font-mono text-center font-bold tracking-widest text-xs flex-1 focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
                       />
                       <button
                         type="button"
                         onClick={handleAuthorizePin}
-                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-lg text-xs transition-colors"
+                        className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 active:bg-rose-900 text-white font-bold rounded-lg text-xs transition-colors cursor-pointer"
                       >
                         Authorize
                       </button>
                     </div>
                   ) : (
-                    <div className="text-[11px] font-medium text-emerald-800 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                      Approval granted by <strong>{authorizedBy}</strong>. Proceed with refund.
+                    <div className="text-[11px] font-medium text-emerald-800 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200 flex items-center justify-between">
+                      <span>Refund authorization granted by <strong>{authorizedBy}</strong>.</span>
+                      <span className="text-[10px] text-emerald-600 font-bold">READY</span>
                     </div>
                   )}
                 </div>
@@ -274,14 +279,14 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-slate-200 rounded-lg font-medium text-slate-700 hover:bg-slate-50"
+              className="px-4 py-2 border border-slate-200 rounded-lg font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={!currentTx || !!success}
-              className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-sm flex items-center space-x-1"
+              disabled={!currentTx || !!success || (!isManagerOrAdmin && !authorizedBy)}
+              className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-sm flex items-center space-x-1 cursor-pointer"
             >
               <span>Confirm Refund</span>
               <ArrowRight className="w-3.5 h-3.5" />

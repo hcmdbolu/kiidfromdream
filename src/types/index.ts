@@ -34,11 +34,70 @@ export type PaymentMethod =
   | 'Check'
   | 'Split Payment';
 
+export type PosAccountType = 'POS_TERMINAL' | 'BANK_TRANSFER_ACCOUNT';
+export type PosProvider = 'Moniepoint' | 'OPay' | 'GTBank' | 'Zenith Bank' | 'Access Bank' | 'PalmPay' | 'FirstBank' | 'Stanbic IBTC' | 'Kuda' | 'Other';
+
+export interface PosTerminalConfig {
+  id: string; // e.g. "POS-001", "BANK-001"
+  name: string; // e.g. "Moniepoint POS - Counter 1", "GTBank Commercial Account"
+  type: PosAccountType;
+  provider: PosProvider;
+  terminal_id?: string; // Terminal Serial or Merchant ID (e.g. "MP-882019", "OPAY-7721")
+  account_name: string; // e.g. "Kiid From Dream Frozen Foods Ltd"
+  account_number: string; // e.g. "0123456789"
+  bank_name: string; // e.g. "Moniepoint Microfinance Bank", "Guaranty Trust Bank"
+  assigned_location?: string; // e.g. "Counter 1 - Retail Counter", "Cold Room Express"
+  status: 'Active' | 'Inactive';
+  is_default?: boolean;
+  notes?: string;
+  created_at: string;
+}
+
 export interface SplitPaymentDetail {
   method: 'Cash' | 'Bank Transfer' | 'POS' | 'Debit/Credit Card' | 'Mobile Money' | 'Check';
   amount: number;
   reference?: string;
   notes?: string;
+  pos_terminal_id?: string;
+  pos_terminal_name?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+}
+
+export interface CashToBankTransfer {
+  transfer_id: string; // e.g. "CASH-TRF-20260926-001"
+  date_time: string;
+  cashier_staff_id: string;
+  cashier_staff_name: string;
+  cashier_role: UserRole;
+  manager_staff_id: string;
+  manager_staff_name: string;
+  manager_role: UserRole;
+  amount_transferred: number;
+  cashier_cash_before: number;
+  cashier_cash_remaining: number;
+  destination_bank_name: string;
+  destination_account_name: string;
+  destination_account_number: string;
+  bank_account_id?: string;
+  deposit_slip_number?: string; // Bank slip number or transaction reference
+  notes: string; // Mandatory explanation/notes
+  status: 'COMPLETED';
+}
+
+export interface CashierDrawerSummary {
+  staff_id: string;
+  staff_name: string;
+  role: UserRole;
+  phone_number: string;
+  shift_time: string;
+  total_cash_collected: number;
+  total_cash_refunded: number;
+  total_transferred_to_bank: number;
+  current_cash_in_hand: number;
+  sales_count: number;
+  transfers_count: number;
+  last_activity_time?: string;
 }
 
 export type CustomerType = 
@@ -74,6 +133,11 @@ export interface SaleTransaction {
   payment_splits?: SplitPaymentDetail[];
   amount_paid?: number;
   change_due?: number;
+  pos_terminal_id?: string;
+  pos_terminal_name?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  payment_reference?: string; // RRN or bank transfer session ID
   staff_id: string;
   customer_id: string;
   status: 'COMPLETED' | 'REFUNDED' | 'PARTIALLY_REFUNDED';
@@ -273,6 +337,7 @@ export type AuditCategory =
   | 'Customer'
   | 'CycleCount' 
   | 'Transfer' 
+  | 'Finance'
   | 'Security' 
   | 'System';
 
@@ -294,6 +359,10 @@ export type AuditAction =
   | 'PRODUCT_DELETED'
   | 'CUSTOMER_REGISTERED'
   | 'SUPPLIER_CREATED'
+  | 'CASH_TRANSFER_TO_BANK'
+  | 'POS_TERMINAL_CREATED'
+  | 'POS_TERMINAL_UPDATED'
+  | 'POS_TERMINAL_DELETED'
   | 'STAFF_SWITCHED'
   | 'STAFF_LOGIN'
   | 'STAFF_LOGOUT'

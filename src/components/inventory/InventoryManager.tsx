@@ -16,10 +16,13 @@ import {
   Layers,
   ClipboardCheck,
   Lock,
-  Shield
+  Shield,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { CycleCountModal } from './CycleCountModal';
+import { BulkImportModal } from './BulkImportModal';
 
 interface InventoryManagerProps {
   onQuickOrderPO?: (supplierId: string, itemSn: string) => void;
@@ -47,6 +50,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [editingItemSn, setEditingItemSn] = useState<string | null>(null);
   const [isCycleCountOpen, setIsCycleCountOpen] = useState(false);
 
@@ -60,6 +64,18 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
     actionDescription: '',
     onAuthorized: () => {},
   });
+
+  const handleRequestBulkImport = () => {
+    if (canManageProducts) {
+      setIsBulkImportOpen(true);
+    } else {
+      setOverrideContext({
+        isOpen: true,
+        actionDescription: 'Bulk import fish products from CSV into inventory',
+        onAuthorized: () => setIsBulkImportOpen(true),
+      });
+    }
+  };
 
   // Form states
   const [formData, setFormData] = useState({
@@ -231,6 +247,18 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
           )}
 
           <button
+            onClick={handleRequestBulkImport}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-semibold text-xs shadow-xs transition-all cursor-pointer"
+            title={canManageProducts ? 'Bulk Import Items via CSV Spreadsheet' : 'Requires Manager/Admin PIN'}
+          >
+            {canManageProducts ? <Upload className="w-4 h-4 text-emerald-600" /> : <Lock className="w-3.5 h-3.5 text-amber-500" />}
+            <span>Bulk Import Items</span>
+            {!canManageProducts && (
+              <span className="text-[10px] bg-amber-400/20 text-amber-700 px-1 rounded font-mono">PIN</span>
+            )}
+          </button>
+
+          <button
             onClick={handleRequestAdd}
             className={`flex items-center space-x-1.5 px-4 py-2 text-white rounded-lg font-semibold text-xs shadow-sm transition-all cursor-pointer ${
               canManageProducts ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-800 hover:bg-slate-700'
@@ -369,10 +397,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
                               ? 'text-amber-600'
                               : 'text-slate-900'
                           }`}>
-                            {product.quantity} {product.product_measure_unit}
+                            {product.quantity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} {product.product_measure_unit}
                           </span>
                           <div className="text-[10px] text-slate-400">
-                            Reorder @ {product.reorder_level} {product.product_measure_unit}
+                            Reorder @ {product.reorder_level.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })} {product.product_measure_unit}
                           </div>
                           {isLowStock && (
                             <span className="inline-block mt-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded bg-amber-100 text-amber-800">
@@ -573,6 +601,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
                   </label>
                   <input
                     type="number"
+                    step="any"
                     required
                     min="0"
                     value={formData.item_cost}
@@ -588,6 +617,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
                   </label>
                   <input
                     type="number"
+                    step="any"
                     required
                     min="0"
                     value={formData.selling_price}
@@ -599,30 +629,34 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
                 {/* Initial / Current Stock Quantity */}
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Current Quantity on Hand *
+                    Current Quantity on Hand * (Float / Decimal)
                   </label>
                   <input
                     type="number"
+                    step="any"
                     required
                     min="0"
+                    placeholder="e.g. 60.5 or 120"
                     value={formData.quantity}
                     onChange={(e) => setFormData({ ...formData, quantity: parseFloat(e.target.value) || 0 })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-bold"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-bold font-mono"
                   />
                 </div>
 
                 {/* Reorder Level */}
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Reorder Alert Level *
+                    Reorder Alert Level * (Float / Decimal)
                   </label>
                   <input
                     type="number"
+                    step="any"
                     required
-                    min="1"
+                    min="0.01"
+                    placeholder="e.g. 15.5 or 20"
                     value={formData.reorder_level}
                     onChange={(e) => setFormData({ ...formData, reorder_level: parseFloat(e.target.value) || 1 })}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono"
                   />
                 </div>
 
@@ -693,6 +727,12 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
       <CycleCountModal
         isOpen={isCycleCountOpen}
         onClose={() => setIsCycleCountOpen(false)}
+      />
+
+      {/* Bulk CSV Import Modal */}
+      <BulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
       />
 
       {/* Security PIN Override Modal for Catalog Modifications */}

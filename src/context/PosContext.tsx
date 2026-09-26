@@ -21,6 +21,9 @@ import {
   AuditCategory,
   AuditAction,
   AuditSeverity,
+  PosTerminalConfig,
+  CashToBankTransfer,
+  CashierDrawerSummary,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -32,6 +35,8 @@ import {
   INITIAL_AUDIT_LOG,
   INITIAL_CYCLE_COUNTS,
   INITIAL_STOCK_TRANSFERS,
+  INITIAL_POS_TERMINALS,
+  INITIAL_CASH_TRANSFERS,
 } from '../data/initialData';
 import { Permission, hasRolePermission, generateAuditHash } from '../utils/rbac';
 
@@ -49,6 +54,8 @@ interface PosContextType {
   stockTransfers: StockTransferRecord[];
   parkedOrders: ParkedOrder[];
   voidedOrders: VoidedOrderRecord[];
+  posTerminals: PosTerminalConfig[];
+  cashTransfers: CashToBankTransfer[];
 
   // Multi-Order Simultaneous Walk-in Queue
   activeOrders: ActiveWalkInOrder[];
@@ -128,10 +135,33 @@ interface PosContextType {
     paymentMethod: PaymentMethod,
     paymentSplits?: SplitPaymentDetail[],
     amountPaid?: number,
-    changeDue?: number
+    changeDue?: number,
+    paymentMeta?: {
+      pos_terminal_id?: string;
+      pos_terminal_name?: string;
+      bank_account_number?: string;
+      bank_name?: string;
+      payment_reference?: string;
+    }
   ) => { success: boolean; transaction?: SaleTransaction; error?: string };
   processRefund: (originalTxnId: string, item_sn: string, quantity: number, reason: string, authorizedByStaffId?: string) => { success: boolean; error?: string };
   
+  // Cash Reconciliation & Bank Transfers (Manager & Admin)
+  getCashierDrawerSummary: (targetStaffId?: string) => CashierDrawerSummary[];
+  processCashToBankTransfer: (params: {
+    cashierStaffId: string;
+    amount: number;
+    destinationAccountId?: string;
+    depositSlipNumber?: string;
+    notes: string;
+    managerPin: string;
+  }) => { success: boolean; transfer?: CashToBankTransfer; error?: string };
+
+  // POS Terminals & Bank Accounts Setup
+  addPosTerminal: (terminal: Omit<PosTerminalConfig, 'id' | 'created_at'>) => PosTerminalConfig;
+  updatePosTerminal: (id: string, updates: Partial<PosTerminalConfig>) => void;
+  deletePosTerminal: (id: string) => void;
+
   // Cycle Counts (Supervisor)
   performCycleCount: (data: { item_sn: string; counted_qty: number; reason: string; adjustStock: boolean }) => { success: boolean; record?: CycleCountRecord; error?: string };
 
@@ -140,6 +170,7 @@ interface PosContextType {
 
   // Entity management
   addProduct: (product: Omit<Product, 'item_sn'>) => Product;
+  bulkAddProducts: (products: Omit<Product, 'item_sn'>[]) => Product[];
   updateProduct: (item_sn: string, product: Partial<Product>) => void;
   deleteProduct: (item_sn: string) => void;
   
@@ -198,6 +229,8 @@ const STORAGE_KEYS = {
   PARKED_ORDERS: 'kiidfromdream_parked_orders_v2',
   VOIDED_ORDERS: 'kiidfromdream_voided_orders_v2',
   ACTIVE_ORDERS: 'kiidfromdream_active_orders_v2',
+  POS_TERMINALS: 'kiidfromdream_pos_terminals_v2',
+  CASH_TRANSFERS: 'kiidfromdream_cash_transfers_v2',
 };
 
 export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -316,6 +349,24 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  const [posTerminals, setPosTerminals] = useState<PosTerminalConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.POS_TERMINALS);
+      return saved ? JSON.parse(saved) : INITIAL_POS_TERMINALS;
+    } catch {
+      return INITIAL_POS_TERMINALS;
+    }
+  });
+
+  const [cashTransfers, setCashTransfers] = useState<CashToBankTransfer[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.CASH_TRANSFERS);
+      return saved ? JSON.parse(saved) : INITIAL_CASH_TRANSFERS;
+    } catch {
+      return INITIAL_CASH_TRANSFERS;
+    }
+  });
+
   // Central Database synchronization state
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
@@ -396,6 +447,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try { localStorage.setItem(STORAGE_KEYS.VOIDED_ORDERS, JSON.stringify(voidedOrders)); } catch {}
   }, [voidedOrders]);
 
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.POS_TERMINALS, JSON.stringify(posTerminals)); } catch {}
+  }, [posTerminals]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.CASH_TRANSFERS, JSON.stringify(cashTransfers)); } catch {}
+  }, [cashTransfers]);
+
   // -------------------------------------------------------------
   // CENTRAL DATABASE SYNC & MULTI-TERMINAL SSE STREAM
   // -------------------------------------------------------------
@@ -418,6 +477,8 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setStockTransfers(data.stockTransfers || []);
           if (Array.isArray(data.parkedOrders)) setParkedOrders(data.parkedOrders);
           if (Array.isArray(data.voidedOrders)) setVoidedOrders(data.voidedOrders);
+          if (Array.isArray(data.posTerminals)) setPosTerminals(data.posTerminals);
+          if (Array.isArray(data.cashTransfers)) setCashTransfers(data.cashTransfers);
           setServerVersion(data.version || 1);
           serverVersionRef.current = data.version || 1;
           setIsOnline(true);
@@ -510,6 +571,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (payload.voidedOrders) setVoidedOrders(payload.voidedOrders);
             if (payload.parkedOrders) setParkedOrders(payload.parkedOrders);
             if (payload.auditLogs) setAuditLogs(payload.auditLogs);
+          } else if (type === 'POS_TERMINALS_UPDATED') {
+            if (payload.posTerminals) setPosTerminals(payload.posTerminals);
+          } else if (type === 'CASH_TRANSFER_PROCESSED') {
+            if (payload.cashTransfers) setCashTransfers(payload.cashTransfers);
+            if (payload.auditLogs) setAuditLogs(payload.auditLogs);
+            if (payload.transfer) {
+              setRecentBroadcastNotice(`🏦 Cash Transfer: ₦${payload.transfer.amount_transferred.toLocaleString()} banked from Cashier ${payload.transfer.cashier_staff_name}.`);
+              setTimeout(() => setRecentBroadcastNotice(null), 5000);
+            }
           } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED') {
             fetchDbFromServer();
           }
@@ -1175,7 +1245,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     paymentMethod: PaymentMethod,
     paymentSplits?: SplitPaymentDetail[],
     amountPaid?: number,
-    changeDue?: number
+    changeDue?: number,
+    paymentMeta?: {
+      pos_terminal_id?: string;
+      pos_terminal_name?: string;
+      bank_account_number?: string;
+      bank_name?: string;
+      payment_reference?: string;
+    }
   ) => {
     if (!hasPermission('CAN_POS_SALE')) {
       addAuditLogInternal({
@@ -1253,6 +1330,11 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       payment_splits: paymentSplits && paymentSplits.length > 0 ? paymentSplits : undefined,
       amount_paid: amountPaid,
       change_due: changeDue,
+      pos_terminal_id: paymentMeta?.pos_terminal_id,
+      pos_terminal_name: paymentMeta?.pos_terminal_name,
+      bank_account_number: paymentMeta?.bank_account_number,
+      bank_name: paymentMeta?.bank_name,
+      payment_reference: paymentMeta?.payment_reference,
       staff_id: activeStaff.staff_id,
       customer_id: selectedCustomerId,
       status: 'COMPLETED',
@@ -1616,7 +1698,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // -------------------------------------------------------------
-  // REFUND FLOW (Supervisor, Manager, Admin)
+  // REFUND FLOW (Strictly Manager & Admin Only)
   // -------------------------------------------------------------
   const processRefund = (
     originalTxnId: string, 
@@ -1625,15 +1707,27 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     reason: string,
     authorizedByStaffId?: string
   ) => {
-    const isDirectlyAuthorized = ['Supervisor', 'Manager', 'Admin'].includes(activeStaff.role);
-    if (!isDirectlyAuthorized && !authorizedByStaffId) {
+    // Strict RBAC: Only Manager and Admin roles can carry out customer refunds
+    const isDirectlyAuthorized = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
+    let authorizerStaff: Employee | undefined;
+
+    if (authorizedByStaffId) {
+      authorizerStaff = employees.find(e => e.staff_id === authorizedByStaffId);
+    }
+
+    const hasManagerOrAdminOverride = authorizerStaff && (authorizerStaff.role === 'Manager' || authorizerStaff.role === 'Admin');
+
+    if (!isDirectlyAuthorized && !hasManagerOrAdminOverride) {
       addAuditLogInternal({
         category: 'Security',
         action: 'PERMISSION_DENIED',
-        details: `Cashier ${activeStaff.staff_name} tried to process refund on ${originalTxnId} without Supervisor PIN approval.`,
+        details: `${activeStaff.role} ${activeStaff.staff_name} attempted to carry out a refund on ${originalTxnId}. Customer refunds are strictly restricted to Manager and Admin roles only.`,
         severity: 'ALERT',
       });
-      return { success: false, error: 'Refunds require Supervisor, Manager, or Admin authorization.' };
+      return { 
+        success: false, 
+        error: 'Access Denied: Customer refunds can strictly only be carried out by Managers and Admins.' 
+      };
     }
 
     const saleTx = sales.find(s => s.transaction_id === originalTxnId);
@@ -1722,6 +1816,272 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(err => console.warn('[Central DB] Failed to save refund:', err));
 
     return { success: true };
+  };
+
+  // -------------------------------------------------------------
+  // CASH DRAWER TRACKING & BANK TRANSFERS (Manager & Admin)
+  // -------------------------------------------------------------
+  const getCashierDrawerSummary = useCallback((targetStaffId?: string): CashierDrawerSummary[] => {
+    const targetStaffList = targetStaffId 
+      ? employees.filter(e => e.staff_id === targetStaffId)
+      : employees;
+
+    return targetStaffList.map(staff => {
+      // 1. Calculate cash collected from sales by this staff
+      const staffSales = sales.filter(s => s.staff_id === staff.staff_id && s.status !== 'REFUNDED');
+      
+      let totalCashCollected = 0;
+      let salesCount = 0;
+      let lastActivityTime: string | undefined = undefined;
+
+      staffSales.forEach(sale => {
+        let saleCashAmount = 0;
+        if (sale.payment_method === 'Cash') {
+          saleCashAmount = sale.final_amount;
+        } else if (sale.payment_method === 'Split Payment' && Array.isArray(sale.payment_splits)) {
+          sale.payment_splits.forEach(split => {
+            if (split.method === 'Cash') {
+              saleCashAmount += split.amount;
+            }
+          });
+        }
+
+        if (saleCashAmount > 0) {
+          totalCashCollected += saleCashAmount;
+          salesCount += 1;
+          if (!lastActivityTime || new Date(sale.date_time) > new Date(lastActivityTime)) {
+            lastActivityTime = sale.date_time;
+          }
+        }
+      });
+
+      // 2. Calculate cash refunded for sales by this staff
+      let totalCashRefunded = 0;
+      refunds.forEach(ref => {
+        const origSale = sales.find(s => s.transaction_id === ref.original_transaction_id);
+        if (origSale && origSale.staff_id === staff.staff_id && (origSale.payment_method === 'Cash' || origSale.payment_splits?.some(s => s.method === 'Cash'))) {
+          totalCashRefunded += ref.refund_amount;
+        }
+      });
+
+      // 3. Calculate cash transferred to bank from this cashier
+      let totalTransferred = 0;
+      let transfersCount = 0;
+      cashTransfers.forEach(transfer => {
+        if (transfer.cashier_staff_id === staff.staff_id) {
+          totalTransferred += transfer.amount_transferred;
+          transfersCount += 1;
+          if (!lastActivityTime || new Date(transfer.date_time) > new Date(lastActivityTime)) {
+            lastActivityTime = transfer.date_time;
+          }
+        }
+      });
+
+      const currentCashInHand = Math.max(0, totalCashCollected - totalCashRefunded - totalTransferred);
+
+      return {
+        staff_id: staff.staff_id,
+        staff_name: staff.staff_name,
+        role: staff.role,
+        phone_number: staff.phone_number,
+        shift_time: staff.shift_time,
+        total_cash_collected: totalCashCollected,
+        total_cash_refunded: totalCashRefunded,
+        total_transferred_to_bank: totalTransferred,
+        current_cash_in_hand: currentCashInHand,
+        sales_count: salesCount,
+        transfers_count: transfersCount,
+        last_activity_time: lastActivityTime,
+      };
+    });
+  }, [employees, sales, refunds, cashTransfers]);
+
+  const processCashToBankTransfer = (params: {
+    cashierStaffId: string;
+    amount: number;
+    destinationAccountId?: string;
+    depositSlipNumber?: string;
+    notes: string;
+    managerPin: string;
+  }): { success: boolean; transfer?: CashToBankTransfer; error?: string } => {
+    const { cashierStaffId, amount, destinationAccountId, depositSlipNumber, notes, managerPin } = params;
+
+    // Validate Manager or Admin PIN
+    const authStaff = employees.find(e => e.pin === managerPin.trim());
+    if (!authStaff) {
+      return { success: false, error: 'Invalid 4-digit PIN entered.' };
+    }
+    if (authStaff.role !== 'Manager' && authStaff.role !== 'Admin') {
+      return { success: false, error: `Access Denied: ${authStaff.role} ${authStaff.staff_name} cannot authorize cash-to-bank transfers. Strictly Manager or Admin only.` };
+    }
+
+    // Validate Cashier
+    const cashier = employees.find(e => e.staff_id === cashierStaffId);
+    if (!cashier) {
+      return { success: false, error: 'Cashier account not found.' };
+    }
+
+    // Validate Note
+    if (!notes || notes.trim().length < 3) {
+      return { success: false, error: 'Please enter a note/reason for this cash transfer to bank.' };
+    }
+
+    // Validate Amount
+    if (isNaN(amount) || amount <= 0) {
+      return { success: false, error: 'Transfer amount must be greater than ₦0.' };
+    }
+
+    const drawerSummaries = getCashierDrawerSummary(cashierStaffId);
+    const summary = drawerSummaries[0];
+    const cashBefore = summary?.current_cash_in_hand || 0;
+
+    if (amount > cashBefore) {
+      return { 
+        success: false, 
+        error: `Cannot transfer ₦${amount.toLocaleString()}. Cashier only has ₦${cashBefore.toLocaleString()} cash in hand.` 
+      };
+    }
+
+    // Find destination bank account
+    const destinationAcc = posTerminals.find(t => t.id === destinationAccountId) || 
+      posTerminals.find(t => t.type === 'BANK_TRANSFER_ACCOUNT' && t.is_default) ||
+      posTerminals[0];
+
+    const destBankName = destinationAcc?.bank_name || 'Guaranty Trust Bank';
+    const destAccName = destinationAcc?.account_name || 'Kiid From Dream Enterprises';
+    const destAccNumber = destinationAcc?.account_number || '0123456789';
+
+    const transferId = `CASH-TRF-${Date.now().toString().slice(-8)}`;
+    const nowStr = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const remainingCash = cashBefore - amount;
+
+    const newTransfer: CashToBankTransfer = {
+      transfer_id: transferId,
+      date_time: nowStr,
+      cashier_staff_id: cashier.staff_id,
+      cashier_staff_name: cashier.staff_name,
+      cashier_role: cashier.role,
+      manager_staff_id: authStaff.staff_id,
+      manager_staff_name: authStaff.staff_name,
+      manager_role: authStaff.role,
+      amount_transferred: amount,
+      cashier_cash_before: cashBefore,
+      cashier_cash_remaining: remainingCash,
+      destination_bank_name: destBankName,
+      destination_account_name: destAccName,
+      destination_account_number: destAccNumber,
+      bank_account_id: destinationAcc?.id,
+      deposit_slip_number: depositSlipNumber?.trim() || `DEP-${Date.now().toString().slice(-6)}`,
+      notes: notes.trim(),
+      status: 'COMPLETED',
+    };
+
+    setCashTransfers(prev => [newTransfer, ...prev]);
+
+    addAuditLogInternal({
+      staff_id: authStaff.staff_id,
+      staff_name: authStaff.staff_name,
+      role: authStaff.role,
+      category: 'Finance',
+      action: 'CASH_TRANSFER_TO_BANK',
+      details: `Transferred ₦${amount.toLocaleString()} cash from Cashier ${cashier.staff_name} (${cashier.staff_id}) to ${destBankName} (${destAccNumber}). Remaining float with cashier: ₦${remainingCash.toLocaleString()}. Note: "${notes.trim()}". Ref: ${newTransfer.deposit_slip_number}`,
+      severity: 'SUCCESS',
+      metadata: {
+        transfer_id: transferId,
+        amount,
+        cashier_id: cashier.staff_id,
+        cashier_name: cashier.staff_name,
+        remainingCash,
+        depositSlip: newTransfer.deposit_slip_number,
+        bank: destBankName,
+        account: destAccNumber,
+      }
+    });
+
+    fetch('/api/cash-transfers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transfer: newTransfer }),
+    }).catch(err => console.warn('[Central DB] Failed to save cash transfer:', err));
+
+    return { success: true, transfer: newTransfer };
+  };
+
+  // -------------------------------------------------------------
+  // POS TERMINAL SETUP & ACCOUNT MAPPING CRUD
+  // -------------------------------------------------------------
+  const addPosTerminal = (terminalData: Omit<PosTerminalConfig, 'id' | 'created_at'>): PosTerminalConfig => {
+    const nextNum = posTerminals.length + 1;
+    const prefix = terminalData.type === 'POS_TERMINAL' ? 'POS' : 'BANK';
+    const id = `${prefix}-${nextNum.toString().padStart(3, '0')}`;
+    const today = new Date().toISOString().split('T')[0];
+
+    const newTerminal: PosTerminalConfig = {
+      ...terminalData,
+      id,
+      created_at: today,
+    };
+
+    setPosTerminals(prev => {
+      let updated = [newTerminal, ...prev];
+      if (newTerminal.is_default) {
+        updated = updated.map(t => t.id === newTerminal.id ? t : (t.type === newTerminal.type ? { ...t, is_default: false } : t));
+      }
+      return updated;
+    });
+
+    addAuditLogInternal({
+      category: 'System',
+      action: 'POS_TERMINAL_CREATED',
+      details: `Configured new ${terminalData.type === 'POS_TERMINAL' ? 'POS Terminal' : 'Bank Account'}: ${newTerminal.name} (${newTerminal.bank_name} - ${newTerminal.account_number}). Provider: ${newTerminal.provider}.`,
+      severity: 'SUCCESS',
+      metadata: { terminal_id: id, name: newTerminal.name }
+    });
+
+    fetch('/api/pos-terminals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terminal: newTerminal }),
+    }).catch(err => console.warn('[Central DB] Failed to save pos terminal:', err));
+
+    return newTerminal;
+  };
+
+  const updatePosTerminal = (id: string, updates: Partial<PosTerminalConfig>) => {
+    setPosTerminals(prev => {
+      return prev.map(t => {
+        if (t.id === id) {
+          return { ...t, ...updates };
+        }
+        if (updates.is_default && t.type === updates.type) {
+          return { ...t, is_default: false };
+        }
+        return t;
+      });
+    });
+
+    const updatedTerm = posTerminals.find(t => t.id === id);
+    if (updatedTerm) {
+      fetch('/api/pos-terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ terminal: { ...updatedTerm, ...updates } }),
+      }).catch(err => console.warn('[Central DB] Failed to update pos terminal:', err));
+    }
+  };
+
+  const deletePosTerminal = (id: string) => {
+    setPosTerminals(prev => prev.filter(t => t.id !== id));
+    fetch(`/api/pos-terminals/${id}`, { method: 'DELETE' })
+      .catch(err => console.warn('[Central DB] Failed to delete pos terminal:', err));
   };
 
   // -------------------------------------------------------------
@@ -1884,6 +2244,65 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(err => console.warn('[Central DB] Failed to add product:', err));
 
     return newProduct;
+  };
+
+  const bulkAddProducts = (productsData: Omit<Product, 'item_sn'>[]): Product[] => {
+    if (!productsData.length) return [];
+
+    const numbers = products.map(p => {
+      const parts = p.item_sn.split('-');
+      return parseInt(parts[1] || '0', 10);
+    });
+    let currentMax = numbers.length > 0 ? Math.max(...numbers) : 47;
+
+    const today = new Date().toISOString().split('T')[0];
+    const createdProducts: Product[] = [];
+
+    for (const data of productsData) {
+      currentMax += 1;
+      const item_sn = `FISH-${currentMax.toString().padStart(5, '0')}`;
+      const newProduct: Product = {
+        ...data,
+        item_sn,
+        created_at: data.created_at || today,
+      };
+      createdProducts.push(newProduct);
+    }
+
+    setProducts(prev => [...createdProducts, ...prev]);
+
+    const totalStock = Math.round(createdProducts.reduce((sum, p) => sum + p.quantity, 0) * 1000) / 1000;
+    const totalValue = Math.round(createdProducts.reduce((sum, p) => sum + (p.quantity * p.selling_price), 0));
+
+    addAuditLogInternal({
+      category: 'Inventory',
+      action: 'PRODUCT_CREATED',
+      details: `Bulk imported ${createdProducts.length} fish products (${createdProducts[0]?.item_sn} - ${createdProducts[createdProducts.length - 1]?.item_sn}). Total Units: ${totalStock.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}, Total Value: ₦${totalValue.toLocaleString()}.`,
+      severity: 'SUCCESS',
+      metadata: {
+        imported_count: createdProducts.length,
+        item_sns: createdProducts.map(p => p.item_sn),
+      }
+    });
+
+    // Sync to server
+    fetch('/api/products/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ products: createdProducts }),
+    })
+    .catch(() => {
+      // Fallback: send individually if bulk endpoint not available
+      createdProducts.forEach(prod => {
+        fetch('/api/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product: prod }),
+        }).catch(err => console.warn('[Central DB] Failed to add product in fallback:', err));
+      });
+    });
+
+    return createdProducts;
   };
 
   const updateProduct = (item_sn: string, updates: Partial<Product>) => {
@@ -2331,6 +2750,16 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // BACKUP & RESTORE
   // -------------------------------------------------------------
   const exportBackupData = () => {
+    if (activeStaff.role !== 'Admin') {
+      addAuditLogInternal({
+        category: 'Security',
+        action: 'PERMISSION_DENIED',
+        details: `Access Denied: ${activeStaff.staff_name} (${activeStaff.role}) attempted to export full database backup. Action restricted to Admin only.`,
+        severity: 'ALERT',
+      });
+      return;
+    }
+
     const data = {
       system: 'KIIDFROMDREAM FISH SALES POS',
       export_date: new Date().toISOString(),
@@ -2435,6 +2864,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         auditLogs,
         cycleCounts,
         stockTransfers,
+        posTerminals,
+        cashTransfers,
+        getCashierDrawerSummary,
+        processCashToBankTransfer,
+        addPosTerminal,
+        updatePosTerminal,
+        deletePosTerminal,
         isOnline,
         syncStatus,
         lastSyncTime,
@@ -2495,6 +2931,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         performCycleCount,
         performStockTransfer,
         addProduct,
+        bulkAddProducts,
         updateProduct,
         deleteProduct,
         addCustomer,

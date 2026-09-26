@@ -31,7 +31,9 @@ import {
   Clock,
   Users,
   PlayCircle,
-  X
+  X,
+  Copy,
+  Check
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { WeightModal } from './WeightModal';
@@ -77,7 +79,50 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
     resumeParkedOrder,
     voidedOrders,
     cancelAndVoidOrder,
+    posTerminals,
   } = usePos();
+
+  // Active POS Devices and Bank Accounts
+  const activePosDevices = useMemo(() => {
+    return posTerminals.filter(t => t.type === 'POS_TERMINAL' && t.status === 'Active');
+  }, [posTerminals]);
+
+  const activeBankAccounts = useMemo(() => {
+    return posTerminals.filter(t => t.type === 'BANK_TRANSFER_ACCOUNT' && t.status === 'Active');
+  }, [posTerminals]);
+
+  const defaultPosDevice = useMemo(() => {
+    return activePosDevices.find(t => t.is_default) || activePosDevices[0];
+  }, [activePosDevices]);
+
+  const defaultBankAccount = useMemo(() => {
+    return activeBankAccounts.find(t => t.is_default) || activeBankAccounts[0];
+  }, [activeBankAccounts]);
+
+  // Terminal & Account Selection State
+  const [selectedPosTerminalId, setSelectedPosTerminalId] = useState<string>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
+  const [splitSecondPosTerminalId, setSplitSecondPosTerminalId] = useState<string>('');
+  const [splitSecondBankAccountId, setSplitSecondBankAccountId] = useState<string>('');
+  const [copiedBankAcc, setCopiedBankAcc] = useState(false);
+
+  useEffect(() => {
+    if (!selectedPosTerminalId && defaultPosDevice) {
+      setSelectedPosTerminalId(defaultPosDevice.id);
+    }
+    if (!splitSecondPosTerminalId && defaultPosDevice) {
+      setSplitSecondPosTerminalId(defaultPosDevice.id);
+    }
+  }, [defaultPosDevice, selectedPosTerminalId, splitSecondPosTerminalId]);
+
+  useEffect(() => {
+    if (!selectedBankAccountId && defaultBankAccount) {
+      setSelectedBankAccountId(defaultBankAccount.id);
+    }
+    if (!splitSecondBankAccountId && defaultBankAccount) {
+      setSplitSecondBankAccountId(defaultBankAccount.id);
+    }
+  }, [defaultBankAccount, selectedBankAccountId, splitSecondBankAccountId]);
 
   // Multi-Order & Walk-in Queue Modals
   const [isParkPromptOpen, setIsParkPromptOpen] = useState(false);
@@ -203,11 +248,45 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
         return;
       }
 
+      // Build paymentMeta for POS terminal or Bank account tracking
+      let paymentMeta: {
+        pos_terminal_id?: string;
+        pos_terminal_name?: string;
+        bank_account_number?: string;
+        bank_name?: string;
+        payment_reference?: string;
+      } | undefined = undefined;
+
+      if (selectedPaymentMethod === 'POS') {
+        const term = posTerminals.find(t => t.id === selectedPosTerminalId) || activePosDevices[0];
+        paymentMeta = {
+          pos_terminal_id: term?.id,
+          pos_terminal_name: term?.name,
+          bank_account_number: term?.account_number,
+          bank_name: term?.bank_name,
+          payment_reference: singleRef.trim() || undefined,
+        };
+      } else if (selectedPaymentMethod === 'Bank Transfer') {
+        const bank = posTerminals.find(t => t.id === selectedBankAccountId) || activeBankAccounts[0];
+        paymentMeta = {
+          pos_terminal_id: bank?.id,
+          pos_terminal_name: bank?.name,
+          bank_account_number: bank?.account_number,
+          bank_name: bank?.bank_name,
+          payment_reference: singleRef.trim() || undefined,
+        };
+      } else if (selectedPaymentMethod === 'Cash') {
+        paymentMeta = {
+          payment_reference: 'CASH-DRAWER',
+        };
+      }
+
       const res = processCheckout(
         selectedPaymentMethod,
         undefined,
         selectedPaymentMethod === 'Cash' ? (cashAmountNum || cartFinalTotal) : cartFinalTotal,
-        changeDueSingle
+        changeDueSingle,
+        paymentMeta
       );
 
       if (!res.success) {
@@ -241,10 +320,36 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
         });
       }
       if (splitSecondNum > 0) {
+        let secondMeta: {
+          pos_terminal_id?: string;
+          pos_terminal_name?: string;
+          bank_account_number?: string;
+          bank_name?: string;
+        } = {};
+
+        if (splitSecondMethod === 'POS') {
+          const term = posTerminals.find(t => t.id === splitSecondPosTerminalId) || activePosDevices[0];
+          secondMeta = {
+            pos_terminal_id: term?.id,
+            pos_terminal_name: term?.name,
+            bank_account_number: term?.account_number,
+            bank_name: term?.bank_name,
+          };
+        } else if (splitSecondMethod === 'Bank Transfer') {
+          const bank = posTerminals.find(t => t.id === splitSecondBankAccountId) || activeBankAccounts[0];
+          secondMeta = {
+            pos_terminal_id: bank?.id,
+            pos_terminal_name: bank?.name,
+            bank_account_number: bank?.account_number,
+            bank_name: bank?.bank_name,
+          };
+        }
+
         splits.push({
           method: splitSecondMethod,
           amount: splitSecondNum,
-          reference: splitSecondRef.trim() || undefined
+          reference: splitSecondRef.trim() || undefined,
+          ...secondMeta
         });
       }
       if (splitThirdMethod && splitThirdNum > 0) {
@@ -745,13 +850,15 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                     <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Customer Account</span>
                   </span>
-                  <button
-                    onClick={onOpenCustomerModal}
-                    className="text-emerald-600 hover:text-emerald-700 font-semibold flex items-center space-x-1 text-[11px]"
-                  >
-                    <UserPlus className="w-3 h-3" />
-                    <span>+ New Customer</span>
-                  </button>
+                  {activeStaff.role !== 'Cashier' && (
+                    <button
+                      onClick={onOpenCustomerModal}
+                      className="text-emerald-600 hover:text-emerald-700 font-semibold flex items-center space-x-1 text-[11px] cursor-pointer"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      <span>+ New Customer</span>
+                    </button>
+                  )}
                 </div>
 
                 <select
@@ -1253,19 +1360,151 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                       </div>
                     )}
 
-                    {/* Bank Transfer / POS Reference Input */}
-                    {(selectedPaymentMethod === 'Bank Transfer' || selectedPaymentMethod === 'POS') && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                        <label className="text-[11px] font-semibold text-slate-700 block">
-                          {selectedPaymentMethod === 'Bank Transfer' ? 'Bank Transfer Session / Ref ID (Optional):' : 'POS Terminal RRN / Slip Number (Optional):'}
-                        </label>
-                        <input
-                          type="text"
-                          value={singleRef}
-                          onChange={(e) => setSingleRef(e.target.value)}
-                          placeholder={selectedPaymentMethod === 'Bank Transfer' ? 'e.g. TRF-GTB-891238' : 'e.g. STANBIC-RRN-9921'}
-                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
+                    {/* Dedicated POS Terminal Selection */}
+                    {selectedPaymentMethod === 'POS' && (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-slate-800 flex items-center space-x-1.5">
+                            <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Select POS Terminal Device:</span>
+                          </label>
+                          <span className="text-[10px] text-slate-400">Card Swiped / Tapped</span>
+                        </div>
+
+                        {activePosDevices.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <select
+                              value={selectedPosTerminalId}
+                              onChange={(e) => setSelectedPosTerminalId(e.target.value)}
+                              className="w-full py-1.5 px-2.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            >
+                              {activePosDevices.map(term => (
+                                <option key={term.id} value={term.id}>
+                                  {term.name} ({term.provider} - {term.terminal_id || term.account_number}) {term.is_default ? '★ Default' : ''}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Active Terminal Info Pill */}
+                            {(() => {
+                              const t = posTerminals.find(dev => dev.id === selectedPosTerminalId) || activePosDevices[0];
+                              if (!t) return null;
+                              return (
+                                <div className="p-2 bg-purple-50/70 border border-purple-200 rounded-lg text-[11px] text-purple-900 flex items-center justify-between">
+                                  <div>
+                                    <div className="font-bold flex items-center space-x-1">
+                                      <span>{t.name}</span>
+                                      {t.terminal_id && <span className="font-mono text-[10px] text-purple-700">({t.terminal_id})</span>}
+                                    </div>
+                                    <div className="text-[10px] text-purple-700">
+                                      Settles into: {t.bank_name} ({t.account_number})
+                                    </div>
+                                  </div>
+                                  <span className="px-1.5 py-0.5 rounded bg-purple-200 text-purple-800 font-bold text-[9px] uppercase font-mono">
+                                    {t.provider}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        ) : (
+                          <div className="p-2 rounded bg-amber-50 text-amber-800 text-[11px]">
+                            No POS devices configured. Transaction will use default terminal.
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="text-[10px] font-semibold text-slate-600 block mb-1">
+                            POS Terminal RRN / Slip Number (Optional):
+                          </label>
+                          <input
+                            type="text"
+                            value={singleRef}
+                            onChange={(e) => setSingleRef(e.target.value)}
+                            placeholder="e.g. STANBIC-RRN-9921 or POS Ref"
+                            className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dedicated Commercial Bank Account Selection */}
+                    {selectedPaymentMethod === 'Bank Transfer' && (
+                      <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 text-xs space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-blue-950 flex items-center space-x-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                            <span>Select Bank Transfer Account:</span>
+                          </label>
+                          <span className="text-[10px] text-blue-700 font-semibold">Direct Customer Transfer</span>
+                        </div>
+
+                        {activeBankAccounts.length > 0 ? (
+                          <select
+                            value={selectedBankAccountId}
+                            onChange={(e) => setSelectedBankAccountId(e.target.value)}
+                            className="w-full py-1.5 px-2.5 bg-white border border-blue-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            {activeBankAccounts.map(bank => (
+                              <option key={bank.id} value={bank.id}>
+                                {bank.name} — {bank.bank_name} ({bank.account_number}) {bank.is_default ? '★ Default' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+
+                        {/* Customer Account Details Card for Instant Copy */}
+                        {(() => {
+                          const bank = posTerminals.find(b => b.id === selectedBankAccountId) || activeBankAccounts[0];
+                          if (!bank) return null;
+                          return (
+                            <div className="p-2.5 bg-white rounded-lg border border-blue-200 shadow-xs space-y-1">
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 uppercase font-bold">
+                                <span>{bank.bank_name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(bank.account_number);
+                                    setCopiedBankAcc(true);
+                                    setTimeout(() => setCopiedBankAcc(false), 2500);
+                                  }}
+                                  className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 font-bold cursor-pointer"
+                                >
+                                  {copiedBankAcc ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                      <span className="text-emerald-700">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Copy Account</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              <div className="font-mono font-black text-slate-900 text-sm tracking-wider">
+                                {bank.account_number}
+                              </div>
+                              <div className="text-[10px] text-slate-600 truncate">
+                                {bank.account_name}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        <div>
+                          <label className="text-[10px] font-semibold text-blue-900 block mb-1">
+                            Transfer Session ID / Bank Reference (Optional):
+                          </label>
+                          <input
+                            type="text"
+                            value={singleRef}
+                            onChange={(e) => setSingleRef(e.target.value)}
+                            placeholder="e.g. TRF-GTB-891238 or sender name"
+                            className="w-full px-2.5 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1397,6 +1636,45 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                           <span>POS Terminal</span>
                         </button>
                       </div>
+
+                      {/* Device / Bank Selector for Split Route */}
+                      {splitSecondMethod === 'POS' && activePosDevices.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-semibold text-slate-600 block">
+                            Target POS Device:
+                          </label>
+                          <select
+                            value={splitSecondPosTerminalId}
+                            onChange={(e) => setSplitSecondPosTerminalId(e.target.value)}
+                            className="w-full py-1 px-2 bg-slate-50 border border-slate-200 rounded text-xs font-semibold text-slate-800 focus:outline-none"
+                          >
+                            {activePosDevices.map(term => (
+                              <option key={term.id} value={term.id}>
+                                {term.name} ({term.provider} - {term.terminal_id || term.account_number})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {splitSecondMethod === 'Bank Transfer' && activeBankAccounts.length > 0 && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-semibold text-slate-600 block">
+                            Target Commercial Bank Account:
+                          </label>
+                          <select
+                            value={splitSecondBankAccountId}
+                            onChange={(e) => setSplitSecondBankAccountId(e.target.value)}
+                            className="w-full py-1 px-2 bg-slate-50 border border-slate-200 rounded text-xs font-semibold text-slate-800 focus:outline-none"
+                          >
+                            {activeBankAccounts.map(bank => (
+                              <option key={bank.id} value={bank.id}>
+                                {bank.bank_name} - {bank.account_number} ({bank.name})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       {/* Reference input for second method */}
                       <div>

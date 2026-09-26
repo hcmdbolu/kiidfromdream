@@ -14,6 +14,8 @@ import { RefundModal } from './components/refund/RefundModal';
 import { LoginAuthModal } from './components/auth/LoginAuthModal';
 import { StaffManagerModal } from './components/admin/StaffManagerModal';
 import { StaffAndRolesManager } from './components/admin/StaffAndRolesManager';
+import { CashReconciliationManager } from './components/finance/CashReconciliationManager';
+import { PosTerminalSetupManager } from './components/pos/PosTerminalSetupManager';
 import { CycleCountModal } from './components/inventory/CycleCountModal';
 import { StockTransferModal } from './components/inventory/StockTransferModal';
 import { SaleTransaction, UserRole } from './types';
@@ -98,6 +100,9 @@ function MainApp() {
   };
 
   const handleOpenRefundForTx = (tx: SaleTransaction) => {
+    if (activeStaff.role !== 'Manager' && activeStaff.role !== 'Admin') {
+      return;
+    }
     setSelectedTxForRefund(tx);
     setIsRefundModalOpen(true);
   };
@@ -108,9 +113,9 @@ function MainApp() {
   useEffect(() => {
     const role = activeStaff.role;
     const restrictedTabsForRole: Record<UserRole, string[]> = {
-      Cashier: ['inventory', 'suppliers', 'reports', 'audit'],
-      Supervisor: ['reports', 'audit'],
-      Manager: [],
+      Cashier: ['inventory', 'suppliers', 'reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'customers'],
+      Supervisor: ['reports', 'audit', 'staff', 'reconciliation', 'pos_setup'],
+      Manager: ['staff'],
       Admin: [],
     };
     if (restrictedTabsForRole[role]?.includes(currentTab)) {
@@ -139,8 +144,10 @@ function MainApp() {
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         onOpenRefundModal={() => {
-          setSelectedTxForRefund(null);
-          setIsRefundModalOpen(true);
+          if (activeStaff.role === 'Manager' || activeStaff.role === 'Admin') {
+            setSelectedTxForRefund(null);
+            setIsRefundModalOpen(true);
+          }
         }}
         onOpenCycleCount={() => setIsCycleCountOpen(true)}
         onOpenStockTransfer={() => setIsStockTransferOpen(true)}
@@ -190,7 +197,7 @@ function MainApp() {
             />
           )}
 
-          {currentTab === 'customers' && (
+          {currentTab === 'customers' && !isCashier && (
             <CustomerManager
               onSelectCustomerForSale={handleSelectCustomerForSale}
             />
@@ -212,6 +219,14 @@ function MainApp() {
 
           {currentTab === 'audit' && !isCashier && !isSupervisor && (
             <AuditLogManager />
+          )}
+
+          {currentTab === 'reconciliation' && !isCashier && !isSupervisor && (
+            <CashReconciliationManager onOpenPosSetup={() => setCurrentTab('pos_setup')} />
+          )}
+
+          {currentTab === 'pos_setup' && !isCashier && !isSupervisor && (
+            <PosTerminalSetupManager />
           )}
 
           {currentTab === 'staff' && !isCashier && !isSupervisor && activeStaff.role === 'Admin' && (

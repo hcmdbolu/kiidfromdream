@@ -100,7 +100,7 @@ export const RoleRestrictedCard: React.FC<RoleRestrictedCardProps> = ({
               <div className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>Supervisor PIN Override:</strong> Individual sensitive actions (such as customer refunds or manual stock counts) can also be authorized on-the-fly using a 4-digit Supervisor PIN without switching accounts.
+                  <strong>Supervisor PIN Override:</strong> Individual sensitive operations (such as manual cycle counts or receiving overrides; customer refunds strictly require Manager/Admin) can also be authorized on-the-fly without switching accounts.
                 </span>
               </div>
             </div>

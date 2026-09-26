@@ -150,12 +150,19 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
                 </div>
                 <div className="pt-0.5 space-y-0.5 border-t border-slate-200">
                   {transaction.payment_splits.map((s, idx) => (
-                    <div key={idx} className="flex justify-between text-slate-700">
-                      <span>
-                        • {s.method}
-                        {s.reference ? ` [${s.reference}]` : ''}
-                      </span>
-                      <span className="font-bold font-mono">₦{s.amount.toLocaleString()}</span>
+                    <div key={idx} className="space-y-0.5 border-b border-slate-200/50 pb-1 last:border-0 last:pb-0">
+                      <div className="flex justify-between text-slate-700">
+                        <span>
+                          • {s.method}
+                          {s.reference ? ` [Ref: ${s.reference}]` : ''}
+                        </span>
+                        <span className="font-bold font-mono">₦{s.amount.toLocaleString()}</span>
+                      </div>
+                      {(s.pos_terminal_name || s.bank_name) && (
+                        <div className="text-[9px] text-slate-500 pl-2">
+                          ↳ {s.pos_terminal_name || `${s.bank_name} (${s.bank_account_number})`}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {transaction.change_due && transaction.change_due > 0 ? (
@@ -172,6 +179,24 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
                   <span>Payment Mode:</span>
                   <span className="font-semibold uppercase text-slate-800">{transaction.payment_method}</span>
                 </div>
+                {transaction.pos_terminal_name && (
+                  <div className="flex justify-between text-[10px] text-purple-900 bg-purple-50 px-1.5 py-0.5 rounded">
+                    <span>POS Terminal:</span>
+                    <span className="font-bold font-mono">{transaction.pos_terminal_name}</span>
+                  </div>
+                )}
+                {transaction.bank_name && !transaction.pos_terminal_name && (
+                  <div className="flex justify-between text-[10px] text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded">
+                    <span>Bank Account:</span>
+                    <span className="font-bold font-mono">{transaction.bank_name} ({transaction.bank_account_number})</span>
+                  </div>
+                )}
+                {transaction.payment_reference && transaction.payment_reference !== 'CASH-DRAWER' && (
+                  <div className="flex justify-between text-[10px] text-slate-600">
+                    <span>Ref / Slip ID:</span>
+                    <span className="font-mono">{transaction.payment_reference}</span>
+                  </div>
+                )}
                 {transaction.change_due && transaction.change_due > 0 ? (
                   <div className="flex justify-between text-[10px] text-emerald-800 font-bold">
                     <span>Cash Change Given:</span>

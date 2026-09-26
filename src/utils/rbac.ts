@@ -25,7 +25,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_POS_SALE',
     'CAN_RECEIVE_GOODS',
     'CAN_CYCLE_COUNT',
-    'CAN_REFUND',
     'CAN_VIEW_INVENTORY',
   ],
   Manager: [

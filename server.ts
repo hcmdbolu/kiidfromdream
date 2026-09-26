@@ -30,6 +30,8 @@ interface CentralDatabase {
   stockTransfers: any[];
   parkedOrders: any[];
   voidedOrders: any[];
+  posTerminals: any[];
+  cashTransfers: any[];
 }
 
 // In-memory Database instance
@@ -67,6 +69,20 @@ function loadDatabase(): CentralDatabase {
       if (parsed && Array.isArray(parsed.sales) && Array.isArray(parsed.products)) {
         if (!Array.isArray(parsed.parkedOrders)) parsed.parkedOrders = [];
         if (!Array.isArray(parsed.voidedOrders)) parsed.voidedOrders = [];
+        if (!Array.isArray(parsed.posTerminals) || parsed.posTerminals.length === 0) {
+          try {
+            const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8');
+            const seed = JSON.parse(rawSeed);
+            parsed.posTerminals = seed.posTerminals || [];
+          } catch {}
+        }
+        if (!Array.isArray(parsed.cashTransfers) || parsed.cashTransfers.length === 0) {
+          try {
+            const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8');
+            const seed = JSON.parse(rawSeed);
+            parsed.cashTransfers = seed.cashTransfers || [];
+          } catch {}
+        }
         return parsed;
       }
     }
@@ -93,6 +109,8 @@ function loadDatabase(): CentralDatabase {
       stockTransfers: seed.stockTransfers || [],
       parkedOrders: seed.parkedOrders || [],
       voidedOrders: seed.voidedOrders || [],
+      posTerminals: seed.posTerminals || [],
+      cashTransfers: seed.cashTransfers || [],
     };
     saveDatabase(initialDb);
     return initialDb;
@@ -113,6 +131,8 @@ function loadDatabase(): CentralDatabase {
       stockTransfers: [],
       parkedOrders: [],
       voidedOrders: [],
+      posTerminals: [],
+      cashTransfers: [],
     };
   }
 }
@@ -562,6 +582,39 @@ app.post('/api/products', (req: Request, res: Response) => {
   }
 });
 
+// 9b. Bulk Add or Update Products
+app.post('/api/products/bulk', (req: Request, res: Response) => {
+  try {
+    const { products: newProducts } = req.body;
+    if (!Array.isArray(newProducts) || newProducts.length === 0) {
+      return res.status(400).json({ success: false, error: 'Products array required' });
+    }
+
+    for (const prod of newProducts) {
+      if (!prod || !prod.item_sn) continue;
+      const idx = db.products.findIndex(p => p.item_sn === prod.item_sn);
+      if (idx !== -1) {
+        db.products[idx] = { ...db.products[idx], ...prod };
+      } else {
+        db.products.unshift(prod);
+      }
+    }
+
+    saveDatabase();
+    broadcast('PRODUCTS_UPDATED', { products: db.products });
+
+    res.json({
+      success: true,
+      count: newProducts.length,
+      products: db.products,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/products/bulk:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
 // 10. Cycle Count Adjustment (Supervisor)
 app.post('/api/cycle-counts', (req: Request, res: Response) => {
   try {
@@ -700,7 +753,142 @@ app.post('/api/employees', (req: Request, res: Response) => {
   }
 });
 
-// 14. Admin Reset to Default
+// 14. POS Terminal Setup & Account Mapping
+app.get('/api/pos-terminals', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    posTerminals: db.posTerminals || [],
+    version: db.version,
+  });
+});
+
+app.post('/api/pos-terminals', (req: Request, res: Response) => {
+  try {
+    const { terminal, action } = req.body;
+    if (!terminal || !terminal.id) {
+      return res.status(400).json({ success: false, error: 'Terminal data required' });
+    }
+
+    if (!Array.isArray(db.posTerminals)) {
+      db.posTerminals = [];
+    }
+
+    if (action === 'DELETE') {
+      db.posTerminals = db.posTerminals.filter(t => t.id !== terminal.id);
+    } else {
+      // If marking as default, reset previous default of same type
+      if (terminal.is_default) {
+        db.posTerminals.forEach(t => {
+          if (t.type === terminal.type) t.is_default = false;
+        });
+      }
+      const idx = db.posTerminals.findIndex(t => t.id === terminal.id);
+      if (idx !== -1) {
+        db.posTerminals[idx] = { ...db.posTerminals[idx], ...terminal };
+      } else {
+        db.posTerminals.unshift(terminal);
+      }
+    }
+
+    saveDatabase();
+    broadcast('POS_TERMINALS_UPDATED', { posTerminals: db.posTerminals });
+
+    res.json({
+      success: true,
+      posTerminals: db.posTerminals,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/pos-terminals:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
+app.delete('/api/pos-terminals/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ success: false, error: 'ID required' });
+
+    if (!Array.isArray(db.posTerminals)) db.posTerminals = [];
+    db.posTerminals = db.posTerminals.filter(t => t.id !== id);
+
+    saveDatabase();
+    broadcast('POS_TERMINALS_UPDATED', { posTerminals: db.posTerminals });
+
+    res.json({
+      success: true,
+      posTerminals: db.posTerminals,
+      version: db.version,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 15. Cash Reconciliation & Transfer to Bank
+app.get('/api/cash-transfers', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    cashTransfers: db.cashTransfers || [],
+    version: db.version,
+  });
+});
+
+app.post('/api/cash-transfers', (req: Request, res: Response) => {
+  try {
+    const { transfer } = req.body;
+    if (!transfer || !transfer.transfer_id) {
+      return res.status(400).json({ success: false, error: 'Transfer data required' });
+    }
+
+    if (!Array.isArray(db.cashTransfers)) {
+      db.cashTransfers = [];
+    }
+
+    db.cashTransfers.unshift(transfer);
+
+    // Record audit trail entry
+    const auditEntry = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      timestamp: transfer.date_time || new Date().toISOString(),
+      staff_id: transfer.manager_staff_id,
+      staff_name: transfer.manager_staff_name,
+      role: transfer.manager_role,
+      category: 'Finance',
+      action: 'CASH_TRANSFER_TO_BANK',
+      details: `Manager ${transfer.manager_staff_name} transferred ₦${transfer.amount_transferred.toLocaleString()} cash from Cashier ${transfer.cashier_staff_name} (${transfer.cashier_staff_id}) to ${transfer.destination_bank_name} (${transfer.destination_account_number}). Remaining cashier float: ₦${transfer.cashier_cash_remaining.toLocaleString()}. Note: "${transfer.notes}"`,
+      severity: 'SUCCESS',
+      metadata: {
+        transfer_id: transfer.transfer_id,
+        amount: transfer.amount_transferred,
+        cashier_id: transfer.cashier_staff_id,
+        deposit_slip: transfer.deposit_slip_number,
+      },
+      tamper_hash: `ctb-${Date.now()}`
+    };
+
+    db.auditLogs.unshift(auditEntry);
+
+    saveDatabase();
+    broadcast('CASH_TRANSFER_PROCESSED', {
+      transfer,
+      cashTransfers: db.cashTransfers,
+      auditLogs: db.auditLogs,
+    });
+
+    res.json({
+      success: true,
+      transfer,
+      cashTransfers: db.cashTransfers,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/cash-transfers:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
+// 16. Admin Reset to Default
 app.post('/api/admin/reset', (req: Request, res: Response) => {
   try {
     if (fs.existsSync(DB_FILE)) {
@@ -714,7 +902,7 @@ app.post('/api/admin/reset', (req: Request, res: Response) => {
   }
 });
 
-// 15. Admin Backup Import
+// 17. Admin Backup Import
 app.post('/api/admin/import', (req: Request, res: Response) => {
   try {
     const { backup } = req.body;
@@ -737,6 +925,8 @@ app.post('/api/admin/import', (req: Request, res: Response) => {
       stockTransfers: backup.stockTransfers || [],
       parkedOrders: backup.parkedOrders || [],
       voidedOrders: backup.voidedOrders || [],
+      posTerminals: backup.posTerminals || [],
+      cashTransfers: backup.cashTransfers || [],
     };
 
     saveDatabase(db);

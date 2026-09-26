@@ -164,7 +164,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
             <div className="relative">
               <input
                 type="number"
-                step="0.5"
+                step="any"
                 min="0"
                 value={countedQty}
                 onChange={(e) => setCountedQty(parseFloat(e.target.value) || 0)}

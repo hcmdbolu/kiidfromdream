@@ -51,6 +51,14 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
     title: 'Cryptographic Audit Trail Ledger',
     subtitle: 'SHA-256 tamper-evident system logs, security overrides, and operational event history.',
   },
+  reconciliation: {
+    title: 'Cash Drawer Reconciliation & Bank Treasury',
+    subtitle: 'Track physical till cash balances per cashier, shift collections, and authorize bank deposits.',
+  },
+  pos_setup: {
+    title: 'POS Terminal Setup & Bank Account Mapping',
+    subtitle: 'Configure wireless POS machines (Moniepoint, OPay, GTBank) and commercial accounts for sale tagging.',
+  },
   staff: {
     title: 'Staff & Role Security Administration',
     subtitle: 'Standard enterprise RBAC, staff credentials, security PINs, and shift scheduling.',

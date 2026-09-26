@@ -38,6 +38,9 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     customers, 
     employees, 
     suppliers,
+    posTerminals,
+    cashTransfers,
+    getCashierDrawerSummary,
     syncStatus,
     lastSyncTime,
     serverVersion,
@@ -267,6 +270,48 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       };
     }).sort((a, b) => b.totalRev - a.totalRev);
   }, [employees, relevantSales]);
+
+  // POS Terminal & Bank Account Collections Breakdown
+  const terminalBreakdown = useMemo(() => {
+    return posTerminals.map(term => {
+      let amount = 0;
+      let count = 0;
+
+      relevantSales.forEach(s => {
+        if (s.pos_terminal_id === term.id) {
+          amount += s.final_amount;
+          count++;
+        } else if (s.payment_splits && s.payment_splits.length > 0) {
+          s.payment_splits.forEach(split => {
+            if (split.pos_terminal_id === term.id) {
+              amount += split.amount;
+              count++;
+            }
+          });
+        }
+      });
+
+      return {
+        ...term,
+        count,
+        amount,
+      };
+    }).sort((a, b) => b.amount - a.amount);
+  }, [posTerminals, relevantSales]);
+
+  // Cash Reconciliation Drawer Summary
+  const cashReconciliationSummary = useMemo(() => {
+    const drawers = getCashierDrawerSummary();
+    const totalInHand = drawers.reduce((sum, d) => sum + d.current_cash_in_hand, 0);
+    const totalCollected = drawers.reduce((sum, d) => sum + d.total_cash_collected, 0);
+    const totalTransferred = cashTransfers.reduce((sum, t) => sum + t.amount_transferred, 0);
+    return {
+      drawers,
+      totalInHand,
+      totalCollected,
+      totalTransferred,
+    };
+  }, [getCashierDrawerSummary, cashTransfers]);
 
   // Top 3 Products
   const topProducts = useMemo(() => {
@@ -1078,6 +1123,66 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
                     </td>
                     <td className="py-2.5 px-4 text-right font-mono font-black text-slate-900">
                       ₦{staff.totalRev.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* POS Terminals & Direct Transfer Collections Breakdown */}
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+          <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <CreditCard className="w-4 h-4 text-purple-600" />
+              <h3 className="font-bold text-slate-900 text-xs">
+                POS Terminals & Bank Accounts Audit Matrix
+              </h3>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">
+              {posTerminals.length} configured devices & settlement accounts
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200 text-[10px]">
+                <tr>
+                  <th className="py-2.5 px-4">Terminal / Bank Account</th>
+                  <th className="py-2.5 px-4">Type & Provider</th>
+                  <th className="py-2.5 px-4">Account / Terminal ID</th>
+                  <th className="py-2.5 px-4">Assigned Location</th>
+                  <th className="py-2.5 px-4 text-center">Tagged Txns</th>
+                  <th className="py-2.5 px-4 text-right">Total Settled (₦)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {terminalBreakdown.map(term => (
+                  <tr key={term.id} className="hover:bg-slate-50">
+                    <td className="py-2.5 px-4">
+                      <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                        <span>{term.name}</span>
+                        {term.is_default && <span className="text-[9px] bg-amber-50 text-amber-700 px-1 rounded font-semibold border border-amber-200">Default</span>}
+                      </div>
+                      <div className="text-[10px] text-slate-400">{term.bank_name}</div>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                        {term.provider} • {term.type === 'POS_TERMINAL' ? 'POS' : 'Bank'}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 font-mono text-slate-700">
+                      <div>{term.account_number}</div>
+                      {term.terminal_id && <div className="text-[10px] text-slate-400">TID: {term.terminal_id}</div>}
+                    </td>
+                    <td className="py-2.5 px-4 text-slate-500 text-[11px]">
+                      {term.assigned_location || 'General Desk'}
+                    </td>
+                    <td className="py-2.5 px-4 text-center font-mono font-medium">
+                      {term.count}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
+                      ₦{term.amount.toLocaleString()}
                     </td>
                   </tr>
                 ))}
