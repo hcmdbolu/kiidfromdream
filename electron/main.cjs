@@ -44,7 +44,7 @@ if (!fs.existsSync(userDbPath) && !fs.existsSync(userJsonPath)) {
  */
 function checkServerReady(port) {
   return new Promise((resolve) => {
-    const req = http.get(`http://localhost:${port}/api/health`, (res) => {
+    const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
       resolve(res.statusCode === 200 || res.statusCode === 404);
     });
     req.on('error', () => resolve(false));
@@ -124,7 +124,7 @@ function createWindow() {
 
   mainWindow.maximize();
 
-  const appUrl = `http://localhost:${PORT}`;
+  const appUrl = `http://127.0.0.1:${PORT}`;
 
   waitForServer(PORT).then((ready) => {
     if (ready) {

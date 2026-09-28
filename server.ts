@@ -105,6 +105,15 @@ db = loadDatabase();
 const app = express();
 app.use(express.json({ limit: '15mb' }));
 
+// Health check endpoint for Electron and local connectivity
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    version: db ? db.version : 1,
+    time: new Date().toISOString(),
+  });
+});
+
 // -------------------------------------------------------------
 // AUTH & SECURITY MIDDLEWARE
 // -------------------------------------------------------------
@@ -1274,7 +1283,10 @@ async function startServer() {
 
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    // In bundled production, server.js is inside dist/ directly alongside index.html
+    const distPath = fs.existsSync(path.resolve(__dirname, 'index.html'))
+      ? __dirname
+      : path.resolve(__dirname, 'dist');
     app.use(express.static(distPath));
 
     app.get('*', (req: Request, res: Response, next) => {
@@ -1285,8 +1297,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[POS SERVER] Centralized DB server running on port ${PORT} (${isProduction ? 'Production' : 'Development'})`);
+  const HOST = process.env.HOST || '127.0.0.1';
+  app.listen(PORT, HOST, () => {
+    console.log(`[POS SERVER] Centralized DB server running on http://${HOST}:${PORT} (${isProduction ? 'Production' : 'Development'})`);
   });
 }
 
