@@ -40,6 +40,8 @@ import { WeightModal } from './WeightModal';
 import { ParkedOrdersModal } from './ParkedOrdersModal';
 import { ParkOrderPromptModal } from './ParkOrderPromptModal';
 import { VoidOrderModal } from './VoidOrderModal';
+import { ProductCard } from './ProductCard';
+import { CartItemRow } from './CartItemRow';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
@@ -620,168 +622,17 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                 </button>
               </div>
             ) : (
-              filteredProducts.map(product => {
-                const isOutOfStock = product.quantity <= 0;
-                const isLowStock = product.quantity > 0 && product.quantity <= product.reorder_level;
-                
-                // Expiry calculation
-                const expiryDate = new Date(product.expiry_date);
-                const diffDays = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                const isExpiringSoon = diffDays >= 0 && diffDays <= 3;
-                const isExpired = diffDays < 0;
-
-                // Profit margin calculation: (Selling Price - Cost) / Cost * 100%
-                const profitMargin = product.item_cost > 0 
-                  ? Math.round(((product.selling_price - product.item_cost) / product.item_cost) * 100) 
-                  : 0;
-
-                const inCart = cart.find(c => c.item_sn === product.item_sn);
-
-                return (
-                  <div
-                    key={product.item_sn}
-                    className={`bg-white rounded-xl border transition-all duration-150 flex flex-col justify-between overflow-hidden relative group ${
-                      isOutOfStock 
-                        ? 'opacity-60 border-slate-200 bg-slate-50' 
-                        : 'border-slate-200 hover:border-emerald-500 hover:shadow-md'
-                    }`}
-                  >
-                    {/* Top Image & Badges */}
-                    <div className="relative h-32 w-full bg-slate-100 overflow-hidden">
-                      <img
-                        src={product.item_picture}
-                        alt={product.item_name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80';
-                        }}
-                      />
-                      {/* SN Tag */}
-                      <span className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-sm text-white text-[10px] font-mono px-2 py-0.5 rounded font-semibold">
-                        {product.item_sn}
-                      </span>
-
-                      {/* Expiry Warning */}
-                      {isExpiringSoon && (
-                        <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-pulse">
-                          Exp in {diffDays}d
-                        </span>
-                      )}
-                      {isExpired && (
-                        <span className="absolute top-2 right-2 bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
-                          EXPIRED
-                        </span>
-                      )}
-
-                      {/* Stock pill */}
-                      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded backdrop-blur-md shadow-sm ${
-                          isOutOfStock
-                            ? 'bg-rose-600 text-white'
-                            : isLowStock
-                            ? 'bg-amber-500 text-white'
-                            : 'bg-emerald-600/90 text-white'
-                        }`}>
-                          {isOutOfStock ? 'OUT OF STOCK' : `${product.quantity} ${product.product_measure_unit} LEFT`}
-                        </span>
-
-                        <span className="text-[10px] font-semibold bg-white/90 text-slate-800 px-1.5 py-0.5 rounded shadow-sm">
-                          {profitMargin}% profit
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Details Body */}
-                    <div className="p-3 flex-1 flex flex-col justify-between">
-                      <div>
-                        <h4 className="font-semibold text-slate-900 text-sm leading-snug line-clamp-1">
-                          {product.item_name}
-                        </h4>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {product.product_category}
-                        </p>
-                      </div>
-
-                      <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
-                        <div>
-                          <div className="text-xs text-slate-400">Price</div>
-                          <div className="text-base font-bold text-slate-900">
-                            ₦{product.selling_price.toLocaleString()}
-                            <span className="text-[10px] font-normal text-slate-500">/{product.product_measure_unit}</span>
-                          </div>
-                        </div>
-
-                        {/* Add / Adjust Control */}
-                        {isOutOfStock ? (
-                          <button
-                            disabled
-                            className="px-3 py-1.5 bg-slate-200 text-slate-400 text-xs font-semibold rounded-lg cursor-not-allowed"
-                          >
-                            Out of Stock
-                          </button>
-                        ) : inCart ? (
-                          <div className="flex items-center space-x-1 bg-emerald-50 border border-emerald-300 rounded-lg p-1">
-                            <button
-                              onClick={() => {
-                                const step = inCart.quantity_sold <= 2 ? 0.1 : 1;
-                                updateCartQuantity(product.item_sn, Math.max(0, Math.round((inCart.quantity_sold - step) * 10) / 10));
-                              }}
-                              className="w-5 h-5 rounded bg-white shadow-xs flex items-center justify-center text-slate-700 hover:bg-emerald-100"
-                              title="Decrease"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenWeigh(product, inCart.quantity_sold)}
-                              className="text-xs font-bold text-emerald-950 px-1 font-mono hover:underline flex items-center space-x-0.5"
-                              title="Click to adjust exact scale weight"
-                            >
-                              <span>{inCart.quantity_sold}</span>
-                              <span className="text-[10px] text-emerald-700 font-normal">{product.product_measure_unit}</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                const step = inCart.quantity_sold < 2 ? 0.1 : 1;
-                                updateCartQuantity(product.item_sn, Math.round((inCart.quantity_sold + step) * 10) / 10);
-                              }}
-                              disabled={inCart.quantity_sold >= product.quantity}
-                              className="w-5 h-5 rounded bg-emerald-600 text-white shadow-xs flex items-center justify-center hover:bg-emerald-700 disabled:opacity-50"
-                              title="Increase"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenWeigh(product, inCart.quantity_sold)}
-                              className="w-5 h-5 rounded bg-emerald-100 text-emerald-800 hover:bg-emerald-200 flex items-center justify-center ml-0.5"
-                              title="Scale measurement tool"
-                            >
-                              <Scale className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={() => handleOpenWeigh(product, 1)}
-                              className="flex items-center space-x-1 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 transition-all"
-                              title="Weigh item with scale (e.g. 1.2 kg or 1.3 kg)"
-                            >
-                              <Scale className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Weigh</span>
-                            </button>
-                            <button
-                              onClick={() => addToCart(product, 1)}
-                              className="flex items-center space-x-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Add</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+              filteredProducts.map(product => (
+                <ProductCard
+                  key={product.item_sn}
+                  product={product}
+                  inCart={cart.find(c => c.item_sn === product.item_sn)}
+                  currentTime={now}
+                  onAddToCart={addToCart}
+                  onUpdateCartQuantity={updateCartQuantity}
+                  onOpenWeigh={handleOpenWeigh}
+                />
+              ))
             )}
           </div>
         </div>
@@ -914,85 +765,14 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
                   </div>
                 ) : (
                   cart.map(item => (
-                    <div key={item.item_sn} className="pt-2 flex items-center justify-between text-xs">
-                      <div className="flex-1 pr-2">
-                        <div className="font-semibold text-slate-800 line-clamp-1">{item.item_name}</div>
-                        <div className="text-slate-400 text-[11px]">
-                          {item.item_sn} • ₦{item.unit_price.toLocaleString()} / {item.unit}
-                        </div>
-                      </div>
-
-                      {/* Qty & Weight Controls */}
-                      <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
-                        <button
-                          onClick={() => {
-                            const step = item.quantity_sold <= 2 ? 0.1 : 1;
-                            updateCartQuantity(item.item_sn, Math.max(0, Math.round((item.quantity_sold - step) * 10) / 10));
-                          }}
-                          className="w-5 h-5 rounded bg-white text-slate-700 flex items-center justify-center hover:bg-slate-200"
-                          title="Decrease weight/qty"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        
-                        {/* Direct editable decimal weight input */}
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.05"
-                            min="0.05"
-                            max={item.maxAvailable}
-                            value={item.quantity_sold}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              if (!isNaN(val) && val > 0) {
-                                updateCartQuantity(item.item_sn, val);
-                              }
-                            }}
-                            className="w-14 text-center font-bold font-mono text-slate-900 bg-white border border-slate-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            title="Directly enter weight or count (e.g. 1.2 or 1.3)"
-                          />
-                        </div>
-
-                        <button
-                          onClick={() => {
-                            const step = item.quantity_sold < 2 ? 0.1 : 1;
-                            updateCartQuantity(item.item_sn, Math.round((item.quantity_sold + step) * 10) / 10);
-                          }}
-                          disabled={item.quantity_sold >= item.maxAvailable}
-                          className="w-5 h-5 rounded bg-white text-slate-700 flex items-center justify-center hover:bg-slate-200 disabled:opacity-50"
-                          title="Increase weight/qty"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-
-                        {/* Open scale reading dialog */}
-                        {(() => {
-                          const prod = products.find(p => p.item_sn === item.item_sn);
-                          if (!prod) return null;
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenWeigh(prod, item.quantity_sold)}
-                              className="p-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded transition-colors"
-                              title="Open scale weight dialog"
-                            >
-                              <Scale className="w-3 h-3" />
-                            </button>
-                          );
-                        })()}
-                      </div>
-
-                      <div className="text-right pl-3 min-w-[75px]">
-                        <div className="font-bold text-slate-900">₦{item.total_amount.toLocaleString()}</div>
-                        <button
-                          onClick={() => removeFromCart(item.item_sn)}
-                          className="text-[10px] text-rose-500 hover:text-rose-700"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
+                    <CartItemRow
+                      key={item.item_sn}
+                      item={item}
+                      product={products.find(p => p.item_sn === item.item_sn)}
+                      onUpdateQuantity={updateCartQuantity}
+                      onRemove={removeFromCart}
+                      onOpenWeigh={handleOpenWeigh}
+                    />
                   ))
                 )}
               </div>

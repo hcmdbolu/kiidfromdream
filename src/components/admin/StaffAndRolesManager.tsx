@@ -35,7 +35,9 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
-  Info
+  Info,
+  Flame,
+  Database
 } from 'lucide-react';
 
 interface StaffAndRolesManagerProps {
@@ -43,7 +45,7 @@ interface StaffAndRolesManagerProps {
   onCloseModal?: () => void;
 }
 
-type ActiveSubTab = 'directory' | 'roles' | 'shifts' | 'security_log';
+type ActiveSubTab = 'directory' | 'roles' | 'shifts' | 'security_log' | 'system_admin';
 
 // Detailed permission definitions grouped for standard enterprise matrix
 const PERMISSION_GROUPS: {
@@ -106,7 +108,16 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
     deleteStaff, 
     activeStaff, 
     setActiveStaffId,
-    auditLogs 
+    auditLogs,
+    openFactoryResetModal,
+    exportBackupData,
+    products,
+    sales,
+    customers,
+    syncStatus,
+    serverVersion,
+    lastSyncTime,
+    forceSync
   } = usePos();
 
   // Navigation sub-tab
@@ -550,6 +561,18 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
               <span>Add Staff Member</span>
             </button>
 
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={openFactoryResetModal}
+                className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                title="Factory Data Reset - Wipe all data for live production"
+              >
+                <Flame className="w-3.5 h-3.5 text-rose-600" />
+                <span>Factory Data Reset</span>
+              </button>
+            )}
+
             {isModal && onCloseModal && (
               <button
                 type="button"
@@ -673,6 +696,22 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
             <span>Security & Access Logs</span>
             <span className="px-1.5 py-0.2 rounded-md bg-rose-100 text-[10px] text-rose-700 font-mono">
               {securityLogs.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('system_admin')}
+            className={`pb-3 px-3.5 text-xs font-semibold border-b-2 whitespace-nowrap transition-colors cursor-pointer flex items-center space-x-2 ${
+              subTab === 'system_admin'
+                ? 'border-rose-600 text-rose-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>Security & System Administration</span>
+            <span className="px-1.5 py-0.2 rounded-md bg-rose-100 text-[10px] text-rose-700 font-mono">
+              Admin Only
             </span>
           </button>
         </div>
@@ -1304,6 +1343,141 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------------- */}
+      {/* SUB-TAB 5: SECURITY & SYSTEM ADMINISTRATION (ADMIN ONLY) */}
+      {/* ------------------------------------------------------------------------- */}
+      {subTab === 'system_admin' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Section Description */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center space-x-3.5">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">Security & System Administration</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Core database controls, real-time multi-terminal replication, manual backups, and production factory reset.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => forceSync()}
+                className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Force Re-sync</span>
+              </button>
+              <button
+                type="button"
+                onClick={exportBackupData}
+                className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export JSON Backup</span>
+              </button>
+            </div>
+          </div>
+
+          {/* System Telemetry & Replication Health */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Multi-Terminal Sync</div>
+              <div className="flex items-center space-x-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-sm font-bold text-slate-900 capitalize">{syncStatus}</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                Server Version: v{serverVersion} · Last Sync: {lastSyncTime}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Active Inventory & Sales</div>
+              <div className="text-sm font-bold text-slate-900 font-mono">
+                {products.length} Products · {sales.length} Sales · {customers.length} Customers
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Total records currently registered in active memory
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+              <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Security Authority</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center space-x-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{activeStaff.staff_name}</span>
+              </div>
+              <div className="text-[10px] text-emerald-700 font-semibold font-mono">
+                Administrator Privilege Active
+              </div>
+            </div>
+          </div>
+
+          {/* FACTORY DATA RESET DANGER ZONE CARD */}
+          <div className="bg-gradient-to-br from-rose-50/70 via-white to-red-50/50 rounded-2xl border-2 border-rose-200 p-6 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex items-start space-x-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 border border-rose-300 text-rose-600 flex items-center justify-center shrink-0 shadow-xs">
+                  <Flame className="w-6 h-6 text-rose-600" />
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <h4 className="text-base font-bold text-slate-900">
+                      Factory Data Reset (Wipe All Data)
+                    </h4>
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 rounded-md uppercase">
+                      Admin Only
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
+                    Prepare the POS system for a fresh, live production launch. This action irreversibly wipes all transaction history, sales receipts, customer records, inventory products, purchase orders, cash transfer logs, and audit logs.
+                  </p>
+                </div>
+              </div>
+
+              {/* Reset Trigger Button - Strictly restricted to Admin */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={openFactoryResetModal}
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl transition-all shadow-md shadow-rose-900/20 hover:shadow-lg hover:shadow-rose-900/30 flex items-center space-x-2 shrink-0 cursor-pointer self-start sm:self-center"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Factory Data Reset</span>
+                </button>
+              )}
+            </div>
+
+            {/* Safety Information Box */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+              <div className="p-3.5 rounded-xl bg-white border border-rose-200/80 shadow-2xs space-y-1">
+                <div className="text-xs font-bold text-rose-700 flex items-center space-x-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Purged on Wipe</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-normal">
+                  All sales transactions, product inventory, customer profiles, supplier contacts, cycle counts, drawer cash-to-bank deposits, and audit entries.
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-white border border-emerald-200/80 shadow-2xs space-y-1">
+                <div className="text-xs font-bold text-emerald-700 flex items-center space-x-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Preserved Intact</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-normal">
+                  Administrator credentials (username: <strong>admin</strong>, master PIN: <strong>9999</strong>), and all mapped POS card terminals and settlement bank accounts.
+                </p>
+              </div>
             </div>
           </div>
         </div>

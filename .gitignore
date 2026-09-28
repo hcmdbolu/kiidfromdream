@@ -1,8 +1,18 @@
 node_modules/
 build/
 dist/
+dist-electron/
+release/
+out/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+
+# SQLite and local database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+

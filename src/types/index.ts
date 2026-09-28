@@ -208,6 +208,16 @@ export interface Employee {
   status: 'Active' | 'Inactive';
 }
 
+export interface RefundItemDetail {
+  item_sn: string;
+  item_name: string;
+  quantity_refunded: number;
+  unit_price: number;
+  refund_amount: number;
+  unit?: ProductUnit;
+  item_cost?: number;
+}
+
 export interface RefundRecord {
   refund_id: string;
   original_transaction_id: string;
@@ -220,6 +230,13 @@ export interface RefundRecord {
   staff_id: string;
   customer_id: string;
   authorized_by?: string; // If cashier performed via supervisor override
+  payment_method?: PaymentMethod;
+  pos_terminal_id?: string;
+  pos_terminal_name?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  items?: RefundItemDetail[];
+  is_full_refund?: boolean;
 }
 
 export interface CycleCountRecord {
@@ -371,7 +388,8 @@ export type AuditAction =
   | 'MANAGER_OVERRIDE'
   | 'PERMISSION_DENIED'
   | 'DATABASE_BACKUP_EXPORT'
-  | 'DATABASE_RESET';
+  | 'DATABASE_RESET'
+  | 'RECEIPT_SETTINGS_UPDATED';
 
 export interface AuditLogEntry {
   id: string; // AUD-YYYYMMDD-0001
@@ -386,3 +404,26 @@ export interface AuditLogEntry {
   metadata?: Record<string, any>;
   tamper_hash?: string; // Simulates immutable cryptographically verifiable trail
 }
+
+export interface ReceiptBrandingConfig {
+  id: string; // 'DEFAULT_RECEIPT_CONFIG'
+  business_name: string;
+  tagline: string;
+  address_line1: string;
+  address_line2: string;
+  phone_numbers: string;
+  email: string;
+  tax_or_cac_number: string;
+  footer_thank_you: string;
+  footer_policy_notice: string;
+  custom_notes?: string;
+  logo_base64: string | null;
+  show_logo: boolean;
+  show_barcode: boolean;
+  show_cashier_name: boolean;
+  show_tax_details: boolean;
+  paper_width: '80mm' | '58mm';
+  updated_at: string;
+  updated_by_staff_name: string;
+}
+

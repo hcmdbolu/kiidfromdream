@@ -9,7 +9,7 @@ interface ReceiptModalProps {
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose }) => {
-  const { customers, employees } = usePos();
+  const { customers, employees, receiptSettings } = usePos();
 
   if (!transaction) return null;
 
@@ -48,14 +48,52 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
         </div>
 
         {/* Printable Thermal Receipt Paper Container */}
-        <div id="printable-receipt" className="p-6 bg-[#fafafa] font-mono text-xs text-slate-800 space-y-3">
+        <div 
+          id="printable-receipt" 
+          className={`p-6 bg-[#fafafa] font-mono text-xs text-slate-800 space-y-3 mx-auto ${
+            receiptSettings.paper_width === '58mm' ? 'max-w-[270px] receipt-58mm' : 'max-w-[340px] receipt-80mm'
+          }`}
+        >
           
-          {/* Business Header */}
-          <div className="text-center border-b border-dashed border-slate-300 pb-3">
-            <h2 className="text-base font-extrabold tracking-wider text-slate-950">KIIDFROMDREAM</h2>
-            <p className="text-[10px] text-slate-600 uppercase font-semibold">Fresh & Saltwater Fish Hub</p>
-            <p className="text-[10px] text-slate-500 mt-1">Lekki Fish Terminal, Phase 1, Lagos</p>
-            <p className="text-[10px] text-slate-500">Tel: +234 803 123 4567 / 0800-FISH-POS</p>
+          {/* Business Header & Logo */}
+          <div className="text-center border-b border-dashed border-slate-300 pb-3 space-y-1">
+            {receiptSettings.show_logo && receiptSettings.logo_base64 && (
+              <div className="flex justify-center mb-2">
+                <img
+                  src={receiptSettings.logo_base64}
+                  alt={receiptSettings.business_name}
+                  className="max-h-16 max-w-[200px] object-contain filter grayscale contrast-125"
+                />
+              </div>
+            )}
+            <h2 className="text-base font-extrabold tracking-wider text-slate-950 uppercase">
+              {receiptSettings.business_name || 'KIID FROM DREAM LTD'}
+            </h2>
+            {receiptSettings.tagline && (
+              <p className="text-[10px] text-slate-600 uppercase font-semibold">
+                {receiptSettings.tagline}
+              </p>
+            )}
+            {receiptSettings.address_line1 && (
+              <p className="text-[10px] text-slate-500">
+                {receiptSettings.address_line1}
+              </p>
+            )}
+            {receiptSettings.address_line2 && (
+              <p className="text-[10px] text-slate-500">
+                {receiptSettings.address_line2}
+              </p>
+            )}
+            {receiptSettings.phone_numbers && (
+              <p className="text-[10px] text-slate-500">
+                Tel: {receiptSettings.phone_numbers}
+              </p>
+            )}
+            {receiptSettings.show_tax_details && receiptSettings.tax_or_cac_number && (
+              <p className="text-[9px] text-slate-400 font-semibold tracking-wider">
+                {receiptSettings.tax_or_cac_number}
+              </p>
+            )}
           </div>
 
           {/* Meta Info */}
@@ -68,10 +106,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
               <span className="text-slate-500">Date:</span>
               <span>{transaction.date_time}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Cashier:</span>
-              <span>{cashier ? `${cashier.staff_name} (${cashier.staff_id})` : transaction.staff_id}</span>
-            </div>
+            {receiptSettings.show_cashier_name && (
+              <div className="flex justify-between">
+                <span className="text-slate-500">Cashier:</span>
+                <span>{cashier ? `${cashier.staff_name} (${cashier.staff_id})` : transaction.staff_id}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-slate-500">Customer:</span>
               <span className="font-bold text-slate-800">
@@ -226,27 +266,44 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
           {/* Barcode & Footer */}
           <div className="text-center pt-2 space-y-1.5">
             {/* Simulated thermal barcode lines */}
-            <div className="flex justify-center items-center h-8 space-x-1 px-4">
-              <div className="w-1 h-full bg-slate-800" />
-              <div className="w-0.5 h-full bg-slate-800" />
-              <div className="w-1.5 h-full bg-slate-800" />
-              <div className="w-0.5 h-full bg-slate-800" />
-              <div className="w-2 h-full bg-slate-800" />
-              <div className="w-0.5 h-full bg-slate-800" />
-              <div className="w-1 h-full bg-slate-800" />
-              <div className="w-1.5 h-full bg-slate-800" />
-              <div className="w-0.5 h-full bg-slate-800" />
-              <div className="w-1 h-full bg-slate-800" />
-              <div className="w-2 h-full bg-slate-800" />
-              <div className="w-0.5 h-full bg-slate-800" />
-              <div className="w-1.5 h-full bg-slate-800" />
-            </div>
-            <p className="text-[9px] tracking-widest text-slate-500 font-mono">
-              *{transaction.transaction_id}*
-            </p>
+            {receiptSettings.show_barcode && (
+              <div className="space-y-1">
+                <div className="flex justify-center items-center h-8 space-x-1 px-4">
+                  <div className="w-1 h-full bg-slate-800" />
+                  <div className="w-0.5 h-full bg-slate-800" />
+                  <div className="w-1.5 h-full bg-slate-800" />
+                  <div className="w-0.5 h-full bg-slate-800" />
+                  <div className="w-2 h-full bg-slate-800" />
+                  <div className="w-0.5 h-full bg-slate-800" />
+                  <div className="w-1 h-full bg-slate-800" />
+                  <div className="w-1.5 h-full bg-slate-800" />
+                  <div className="w-0.5 h-full bg-slate-800" />
+                  <div className="w-1 h-full bg-slate-800" />
+                  <div className="w-2 h-full bg-slate-800" />
+                  <div className="w-0.5 h-full bg-slate-800" />
+                  <div className="w-1.5 h-full bg-slate-800" />
+                </div>
+                <p className="text-[9px] tracking-widest text-slate-500 font-mono">
+                  *{transaction.transaction_id}*
+                </p>
+              </div>
+            )}
 
-            <p className="text-[10px] font-bold text-slate-700">Thank you for choosing KIIDFROMDREAM!</p>
-            <p className="text-[9px] text-slate-500">Fresh fish guaranteed. Inspect fish upon receipt.</p>
+            {receiptSettings.footer_thank_you && (
+              <p className="text-[10px] font-bold text-slate-700">
+                {receiptSettings.footer_thank_you}
+              </p>
+            )}
+            {receiptSettings.footer_policy_notice && (
+              <p className="text-[9px] text-slate-500 leading-tight">
+                {receiptSettings.footer_policy_notice}
+              </p>
+            )}
+            {receiptSettings.custom_notes && (
+              <p className="text-[9px] text-slate-400 italic">
+                {receiptSettings.custom_notes}
+              </p>
+            )}
           </div>
 
         </div>

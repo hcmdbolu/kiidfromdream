@@ -259,6 +259,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                   <th className="py-3 px-4">Subtotal</th>
                   <th className="py-3 px-4">Discount</th>
                   <th className="py-3 px-4">Net Total</th>
+                  <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Payment</th>
                   <th className="py-3 px-4">Discount Auth</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -342,7 +343,34 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
 
                         {/* Net Total */}
                         <td className="py-3 px-4 whitespace-nowrap font-bold text-slate-950 font-mono text-sm">
-                          ₦{tx.final_amount.toLocaleString()}
+                          <div>₦{tx.final_amount.toLocaleString()}</div>
+                          {tx.status === 'REFUNDED' && (
+                            <div className="text-[10px] text-rose-600 font-semibold font-mono">
+                              -₦{tx.final_amount.toLocaleString()} Refunded
+                            </div>
+                          )}
+                          {tx.status === 'PARTIALLY_REFUNDED' && (
+                            <div className="text-[10px] text-amber-600 font-semibold font-mono">
+                              Partially Refunded
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status Badge */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {tx.status === 'REFUNDED' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300">
+                              Fully Refunded
+                            </span>
+                          ) : tx.status === 'PARTIALLY_REFUNDED' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              Partially Refunded
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              Completed
+                            </span>
+                          )}
                         </td>
 
                         {/* Payment Method */}
@@ -402,7 +430,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                           <div className="flex items-center justify-end space-x-1.5">
                             <button
                               onClick={() => onViewReceipt(tx)}
-                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center space-x-1"
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center space-x-1 cursor-pointer"
                               title="View and reprint receipt"
                             >
                               <Receipt className="w-3.5 h-3.5" />
@@ -410,14 +438,23 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                             </button>
 
                             {canRefund && (
-                              <button
-                                onClick={() => onOpenRefundForTx(tx)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold flex items-center space-x-1"
-                                title="Process return or item refund (Manager/Admin)"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>Refund</span>
-                              </button>
+                              tx.status === 'REFUNDED' ? (
+                                <span 
+                                  className="px-2.5 py-1 bg-slate-100 text-slate-400 border border-slate-200 rounded text-[11px] font-semibold select-none cursor-not-allowed"
+                                  title="This transaction has been fully refunded"
+                                >
+                                  Refunded
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => onOpenRefundForTx(tx)}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold flex items-center space-x-1 cursor-pointer"
+                                  title="Process return or item refund (Manager/Admin)"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>{tx.status === 'PARTIALLY_REFUNDED' ? 'Refund More' : 'Refund'}</span>
+                                </button>
+                              )
                             )}
                           </div>
                         </td>
@@ -442,54 +479,87 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                   <th className="py-3 px-4">Original Txn</th>
                   <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4">Customer</th>
-                  <th className="py-3 px-4">Item Returned</th>
+                  <th className="py-3 px-4">Item(s) Returned</th>
                   <th className="py-3 px-4">Qty Restored</th>
                   <th className="py-3 px-4">Amount Refunded</th>
+                  <th className="py-3 px-4">Deduction Target</th>
                   <th className="py-3 px-4">Reason</th>
-                  <th className="py-3 px-4">Staff Authorized</th>
+                  <th className="py-3 px-4">Authorized By</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {refunds.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-400">
+                    <td colSpan={10} className="py-12 text-center text-slate-400">
                       No customer refunds recorded.
                     </td>
                   </tr>
                 ) : (
                   refunds.map(ref => {
                     const staff = employees.find(e => e.staff_id === ref.staff_id);
+                    const authorizer = ref.authorized_by ? employees.find(e => e.staff_id === ref.authorized_by) : null;
                     return (
                       <tr key={ref.refund_id} className="hover:bg-rose-50/20 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-rose-700">
-                          {ref.refund_id}
+                          <div>{ref.refund_id}</div>
+                          {ref.is_full_refund && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.2 text-[9px] font-bold uppercase rounded bg-rose-100 text-rose-800 border border-rose-200">
+                              Full Return
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 font-mono font-bold text-slate-800">
                           {ref.original_transaction_id}
                         </td>
-                        <td className="py-3 px-4 font-mono text-slate-500">
+                        <td className="py-3 px-4 font-mono text-slate-500 whitespace-nowrap">
                           {ref.date_time}
                         </td>
                         <td className="py-3 px-4 font-semibold text-slate-800">
                           {customers.find(c => c.customer_id === ref.customer_id)?.full_name || ref.customer_id}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="font-bold text-slate-900">{ref.item_name}</span>
-                          <span className="font-mono text-[10px] text-slate-400 block">{ref.item_sn}</span>
+                          {ref.items && ref.items.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {ref.items.map((it, idx) => (
+                                <div key={idx} className="text-[11px] text-slate-800">
+                                  <span className="font-bold">{it.quantity_refunded} {it.unit || 'KG'}</span> × {it.item_name}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="font-bold text-slate-900">{ref.item_name}</span>
+                              <span className="font-mono text-[10px] text-slate-400 block">{ref.item_sn}</span>
+                            </div>
+                          )}
                         </td>
-                        <td className="py-3 px-4 font-bold text-emerald-700">
+                        <td className="py-3 px-4 font-bold text-emerald-700 whitespace-nowrap">
                           +{ref.quantity_refunded} KG Restored
                         </td>
-                        <td className="py-3 px-4 font-mono font-bold text-rose-700">
+                        <td className="py-3 px-4 font-mono font-bold text-rose-700 whitespace-nowrap text-sm">
                           -₦{ref.refund_amount.toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                            ref.payment_method === 'Cash'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : ref.pos_terminal_name
+                              ? 'bg-purple-50 text-purple-800 border-purple-200'
+                              : 'bg-blue-50 text-blue-800 border-blue-200'
+                          }`}>
+                            {ref.payment_method === 'Cash'
+                              ? 'Cash Drawer Float'
+                              : ref.pos_terminal_name || ref.bank_name || ref.payment_method || 'Settlement Account'
+                            }
+                          </span>
                         </td>
                         <td className="py-3 px-4">
                           <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px]">
                             {ref.reason}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-slate-600">
-                          {staff ? staff.staff_name : ref.staff_id}
+                        <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
+                          {authorizer ? authorizer.staff_name : staff ? staff.staff_name : ref.staff_id}
                         </td>
                       </tr>
                     );

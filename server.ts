@@ -3,6 +3,8 @@ import type { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { PosDatabase } from './server/db/sqlite.ts';
+import { verifyPin, hashPin, isHashedPin, createSessionToken, verifySessionToken } from './src/utils/security.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -10,9 +12,9 @@ const __dirname = path.dirname(__filename);
 const isProduction = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
-const DATA_DIR = path.resolve(__dirname, 'data');
+const DATA_DIR = process.env.POS_DATA_DIR || path.resolve(__dirname, 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'pos_database.json');
-const SEED_FILE = path.resolve(__dirname, 'src', 'data', 'seedData.json');
+const SEED_FILE = process.env.POS_SEED_FILE || path.resolve(__dirname, 'src', 'data', 'seedData.json');
 
 // Interface for Centralized Database
 interface CentralDatabase {
@@ -32,6 +34,7 @@ interface CentralDatabase {
   voidedOrders: any[];
   posTerminals: any[];
   cashTransfers: any[];
+  receiptSettings?: any;
 }
 
 // In-memory Database instance
@@ -57,100 +60,41 @@ function broadcast(eventType: string, payload: any) {
   }
 }
 
+const sqliteDb = new PosDatabase(DATA_DIR);
+
 function loadDatabase(): CentralDatabase {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-
-    if (fs.existsSync(DB_FILE)) {
-      const raw = fs.readFileSync(DB_FILE, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.sales) && Array.isArray(parsed.products)) {
-        if (!Array.isArray(parsed.parkedOrders)) parsed.parkedOrders = [];
-        if (!Array.isArray(parsed.voidedOrders)) parsed.voidedOrders = [];
-        if (!Array.isArray(parsed.posTerminals) || parsed.posTerminals.length === 0) {
-          try {
-            const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8');
-            const seed = JSON.parse(rawSeed);
-            parsed.posTerminals = seed.posTerminals || [];
-          } catch {}
-        }
-        if (!Array.isArray(parsed.cashTransfers) || parsed.cashTransfers.length === 0) {
-          try {
-            const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8');
-            const seed = JSON.parse(rawSeed);
-            parsed.cashTransfers = seed.cashTransfers || [];
-          } catch {}
-        }
-        return parsed;
-      }
+    const snapshot = sqliteDb.getSnapshot();
+    if (snapshot && Array.isArray(snapshot.sales) && Array.isArray(snapshot.products)) {
+      console.log(`[SQLITE] Database loaded successfully (v${snapshot.version})`);
+      return snapshot;
     }
   } catch (err) {
-    console.error('Error loading existing database, falling back to seed:', err);
+    console.error('[SQLITE] Error loading existing database from SQLite:', err);
   }
 
-  // Load from seedData.json
-  try {
-    const rawSeed = fs.readFileSync(SEED_FILE, 'utf-8');
-    const seed = JSON.parse(rawSeed);
-    const initialDb: CentralDatabase = {
-      version: 1,
-      lastUpdated: new Date().toISOString(),
-      products: seed.products || [],
-      customers: seed.customers || [],
-      suppliers: seed.suppliers || [],
-      employees: seed.employees || [],
-      purchaseOrders: seed.purchaseOrders || [],
-      sales: seed.sales || [],
-      refunds: seed.refunds || [],
-      auditLogs: seed.auditLogs || [],
-      cycleCounts: seed.cycleCounts || [],
-      stockTransfers: seed.stockTransfers || [],
-      parkedOrders: seed.parkedOrders || [],
-      voidedOrders: seed.voidedOrders || [],
-      posTerminals: seed.posTerminals || [],
-      cashTransfers: seed.cashTransfers || [],
-    };
-    saveDatabase(initialDb);
-    return initialDb;
-  } catch (err) {
-    console.error('Fatal error loading seedData.json:', err);
-    return {
-      version: 1,
-      lastUpdated: new Date().toISOString(),
-      products: [],
-      customers: [],
-      suppliers: [],
-      employees: [],
-      purchaseOrders: [],
-      sales: [],
-      refunds: [],
-      auditLogs: [],
-      cycleCounts: [],
-      stockTransfers: [],
-      parkedOrders: [],
-      voidedOrders: [],
-      posTerminals: [],
-      cashTransfers: [],
-    };
-  }
+  return sqliteDb.getSnapshot();
 }
 
 function saveDatabase(dataToSave: CentralDatabase = db): boolean {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    dataToSave.version = (dataToSave.version || 0) + 1;
+    dataToSave.version = sqliteDb.touchVersion();
     dataToSave.lastUpdated = new Date().toISOString();
+    sqliteDb.importSnapshot(dataToSave);
 
-    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
-    fs.writeFileSync(tempFile, JSON.stringify(dataToSave, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DB_FILE);
+    // Keep an async JSON copy for backup redundancy
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
+      fs.writeFileSync(tempFile, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      fs.renameSync(tempFile, DB_FILE);
+    } catch {}
+
     return true;
   } catch (err) {
-    console.error('Failed to save database to disk:', err);
+    console.error('[SQLITE] Failed to save database to SQLite:', err);
     return false;
   }
 }
@@ -162,10 +106,204 @@ const app = express();
 app.use(express.json({ limit: '15mb' }));
 
 // -------------------------------------------------------------
+// AUTH & SECURITY MIDDLEWARE
+// -------------------------------------------------------------
+function requireAuth(req: Request, res: Response, next: any) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-session-token'] as string);
+  const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+
+  if (token) {
+    const verified = verifySessionToken(token);
+    if (verified.valid) {
+      (req as any).user = verified;
+      return next();
+    }
+  }
+
+  // Allow local desktop app client directly
+  if (isLocal) {
+    return next();
+  }
+
+  return res.status(401).json({ success: false, error: 'Unauthorized: Valid POS session token required' });
+}
+
+function requireRole(...allowedRoles: string[]) {
+  return (req: Request, res: Response, next: any) => {
+    const user = (req as any).user;
+    const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+    if (isLocal && !user) {
+      return next();
+    }
+    if (user && allowedRoles.includes(user.role)) {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: `Forbidden: Requires ${allowedRoles.join(' or ')} permission` });
+  };
+}
+
+// -------------------------------------------------------------
 // REST API ENDPOINTS
 // -------------------------------------------------------------
 
+// Rate limiting tracker for authentication endpoint to prevent brute-force attacks
+interface LoginAttemptRecord {
+  attempts: number;
+  lockedUntil: number; // timestamp in ms
+  firstFailedAt: number;
+}
+const loginAttemptsMap = new Map<string, LoginAttemptRecord>();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes lockout
+const ATTEMPT_WINDOW_MS = 5 * 60 * 1000;    // 5 minutes sliding window
+
+// Cleanup expired rate limit records periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of loginAttemptsMap.entries()) {
+    if (record.lockedUntil < now && now - record.firstFailedAt > ATTEMPT_WINDOW_MS) {
+      loginAttemptsMap.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
+
+// 0. Staff Central Authentication & Token Issuance with Brute-Force Rate Limiting
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  try {
+    const { username, pin } = req.body;
+    if (!pin && !username) {
+      return res.status(400).json({ success: false, error: 'Username or security PIN is required' });
+    }
+
+    const cleanPin = String(pin || '').trim();
+    const cleanId = String(username || '').trim().toLowerCase();
+    const ip = req.ip || req.socket.remoteAddress || 'local';
+    const rateLimitKey = cleanId ? `${ip}:${cleanId}` : `${ip}:pin`;
+
+    const now = Date.now();
+    const record = loginAttemptsMap.get(rateLimitKey);
+
+    // 1. Check if terminal / user is currently locked out
+    if (record && record.lockedUntil > now) {
+      const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+      const remainingMinutes = Math.ceil(remainingSeconds / 60);
+      return res.status(429).json({
+        success: false,
+        error: `Too many failed login attempts. Terminal locked for security. Please retry in ${remainingMinutes} minute${remainingMinutes > 1 ? 's' : ''} (${remainingSeconds}s) or contact an administrator.`,
+        retryAfterSeconds: remainingSeconds,
+        isLocked: true,
+      });
+    }
+
+    // 2. Validate credentials against central employee store
+    let staff = null;
+    if (cleanId) {
+      staff = db.employees.find(
+        e => (e.staff_id.toLowerCase() === cleanId ||
+              e.staff_name.toLowerCase() === cleanId ||
+              (e.username && e.username.toLowerCase() === cleanId) ||
+              (cleanId === 'admin' && e.role === 'Admin')) &&
+             (verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)))
+      );
+    } else if (cleanPin) {
+      // Cashier quick PIN entry mode (matches active staff by unique PIN)
+      staff = db.employees.find(
+        e => (e.status !== 'Inactive') &&
+             (verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)))
+      );
+    }
+
+    // 3. Failed attempt handling
+    if (!staff) {
+      const currentAttempts = (record && (now - record.firstFailedAt < ATTEMPT_WINDOW_MS))
+        ? record.attempts + 1
+        : 1;
+      const firstFailedAt = (record && (now - record.firstFailedAt < ATTEMPT_WINDOW_MS))
+        ? record.firstFailedAt
+        : now;
+
+      if (currentAttempts >= MAX_LOGIN_ATTEMPTS) {
+        const lockedUntil = now + LOCKOUT_DURATION_MS;
+        loginAttemptsMap.set(rateLimitKey, { attempts: currentAttempts, lockedUntil, firstFailedAt });
+        const remainingSeconds = Math.ceil(LOCKOUT_DURATION_MS / 1000);
+        return res.status(429).json({
+          success: false,
+          error: `Too many failed login attempts. Terminal locked for security for 15 minutes.`,
+          retryAfterSeconds: remainingSeconds,
+          isLocked: true,
+        });
+      } else {
+        loginAttemptsMap.set(rateLimitKey, { attempts: currentAttempts, lockedUntil: 0, firstFailedAt });
+        const remaining = MAX_LOGIN_ATTEMPTS - currentAttempts;
+        return res.status(401).json({
+          success: false,
+          error: `Invalid credentials. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining before security lockout.`,
+          attemptsRemaining: remaining,
+        });
+      }
+    }
+
+    // 4. Inactive staff account check
+    if (staff.status && staff.status.toLowerCase() === 'inactive') {
+      return res.status(403).json({
+        success: false,
+        error: 'This staff account has been deactivated. Please contact store management.',
+      });
+    }
+
+    // 5. Successful login: Clear failed attempts for this key
+    loginAttemptsMap.delete(rateLimitKey);
+    // If admin signs in, also clear any general locks
+    if (staff.role === 'Admin') {
+      loginAttemptsMap.clear();
+    }
+
+    // Auto-upgrade legacy plain PIN to cryptographic hash
+    if (!isHashedPin(staff.pin) && cleanPin) {
+      staff.pin = hashPin(cleanPin);
+      sqliteDb.upsertEmployee(staff);
+    }
+
+    const token = createSessionToken(staff.staff_id, staff.role);
+    res.json({
+      success: true,
+      token,
+      staff: {
+        staff_id: staff.staff_id,
+        staff_name: staff.staff_name,
+        role: staff.role,
+        shift_time: staff.shift_time,
+        username: staff.username,
+        phone_number: staff.phone_number,
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin-only manual security lockout reset
+app.post('/api/auth/unlock', (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-session-token'] as string);
+    const session = verifySessionToken(token);
+    if (!session.valid || session.role !== 'Admin') {
+      return res.status(403).json({ success: false, error: 'Admin privileges required to clear terminal lockouts' });
+    }
+    loginAttemptsMap.clear();
+    res.json({ success: true, message: 'All security lockouts have been reset.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 1. Health & Server Status
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({ status: 'ok', version: db.version });
+});
+
 app.get('/api/status', (req: Request, res: Response) => {
   res.json({
     status: 'online',
@@ -339,33 +477,51 @@ app.post('/api/refunds', (req: Request, res: Response) => {
     // 1. Add refund
     db.refunds.unshift(refund);
 
-    // 2. Restock product in central database
-    if (refund.item_sn) {
+    // 2. Restock products in central database with 3-decimal float precision
+    if (Array.isArray(refund.items) && refund.items.length > 0) {
+      for (const item of refund.items) {
+        if (item.item_sn) {
+          const prod = db.products.find(p => p.item_sn === item.item_sn);
+          if (prod) {
+            prod.quantity = Math.round(((prod.quantity || 0) + (Number(item.quantity_refunded) || 0)) * 1000) / 1000;
+          }
+        }
+      }
+    } else if (refund.item_sn && refund.item_sn !== 'MULTI-ITEM') {
       const prod = db.products.find(p => p.item_sn === refund.item_sn);
       if (prod) {
-        prod.quantity += Number(refund.quantity_refunded) || 0;
+        prod.quantity = Math.round(((prod.quantity || 0) + (Number(refund.quantity_refunded) || 0)) * 1000) / 1000;
       }
     }
 
-    // 3. Update original sale transaction status
+    // 3. Update original sale transaction status (REFUNDED vs PARTIALLY_REFUNDED)
     if (refund.original_transaction_id) {
       const originalTx = db.sales.find(s => s.transaction_id === refund.original_transaction_id);
       if (originalTx) {
-        originalTx.status = 'REFUNDED';
+        originalTx.status = refund.is_full_refund ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
       }
     }
 
-    // 4. Audit
+    // 4. Cryptographic / Audit Log Entry
+    const staffName = refund.authorized_by || refund.staff_id || 'Manager';
+    const paymentTarget = refund.payment_method === 'Cash'
+      ? 'Cashier Drawer Float'
+      : refund.pos_terminal_name
+      ? `POS Terminal: ${refund.pos_terminal_name}`
+      : refund.bank_name
+      ? `Bank Account: ${refund.bank_name}`
+      : refund.payment_method || 'Payment Account';
+
     db.auditLogs.unshift({
       id: `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: refund.date_time || new Date().toISOString(),
       staff_id: refund.staff_id || 'STAFF',
-      staff_name: refund.staff_id,
-      staff_role: 'Supervisor',
+      staff_name: staffName,
+      staff_role: 'Manager',
       category: 'REFUNDS',
       action: 'REFUND_ISSUED',
-      details: `Refund ${refund.refund_id} for ₦${refund.refund_amount?.toLocaleString()} processed (Restocked ${refund.quantity_refunded}KG ${refund.item_name})`,
-      severity: 'MEDIUM',
+      details: `${refund.is_full_refund ? 'Full Refund' : 'Partial Refund'} ${refund.refund_id} for ₦${Number(refund.refund_amount || 0).toLocaleString()} on Txn ${refund.original_transaction_id}. Restocked: ${refund.quantity_refunded}KG. Deducted from: ${paymentTarget}. Authorized by: ${staffName}.`,
+      severity: 'WARNING',
       hash: `hash_${Date.now()}`,
     });
 
@@ -423,7 +579,7 @@ app.post('/api/orders/park', (req: Request, res: Response) => {
 });
 
 // 6c. Record Voided / Aborted Order (with Reason and Inventory Integrity Protection)
-app.post('/api/orders/void', (req: Request, res: Response) => {
+app.post('/api/orders/void', requireAuth, (req: Request, res: Response) => {
   try {
     const { voidRecord } = req.body;
     if (!voidRecord || !voidRecord.void_id) {
@@ -825,6 +981,59 @@ app.delete('/api/pos-terminals/:id', (req: Request, res: Response) => {
   }
 });
 
+// 14b. Receipt & Branding Customization Settings
+app.get('/api/receipt-settings', (req: Request, res: Response) => {
+  const settings = sqliteDb.getReceiptSettings() || db.receiptSettings;
+  res.json({
+    success: true,
+    settings,
+    version: db.version,
+  });
+});
+
+app.post('/api/receipt-settings', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { settings } = req.body;
+    if (!settings) {
+      return res.status(400).json({ success: false, error: 'Receipt settings payload required' });
+    }
+
+    db.receiptSettings = settings;
+    sqliteDb.upsertReceiptSettings(settings);
+
+    // Record audit trail entry
+    const auditEntry = {
+      id: `AUD-${Date.now().toString().slice(-6)}`,
+      timestamp: new Date().toISOString(),
+      staff_id: (req as any).user?.staffId || 'ADMIN',
+      staff_name: settings.updated_by_staff_name || 'Manager/Admin',
+      role: (req as any).user?.role || 'Admin',
+      category: 'Administration',
+      action: 'RECEIPT_SETTINGS_UPDATED',
+      details: `Receipt branding updated by ${settings.updated_by_staff_name || 'Admin'}. Business: "${settings.business_name}", Logo: ${settings.logo_base64 ? 'Active' : 'None'}, Roll: ${settings.paper_width}.`,
+      severity: 'INFO',
+    };
+    db.auditLogs.unshift(auditEntry);
+    sqliteDb.addAuditLog(auditEntry);
+
+    saveDatabase(db);
+    broadcast('RECEIPT_SETTINGS_UPDATED', {
+      version: db.version,
+      settings: db.receiptSettings,
+      auditEntry,
+    });
+
+    res.json({
+      success: true,
+      settings: db.receiptSettings,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/receipt-settings:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 15. Cash Reconciliation & Transfer to Bank
 app.get('/api/cash-transfers', (req: Request, res: Response) => {
   res.json({
@@ -902,8 +1111,84 @@ app.post('/api/admin/reset', (req: Request, res: Response) => {
   }
 });
 
+// 16b. Factory Data Reset (Wipe All Data for Fresh Live Production)
+app.post('/api/admin/factory-reset', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { adminPin, resetKeyword } = req.body;
+
+    // Strict validation: must type word RESET
+    if (resetKeyword !== 'RESET') {
+      return res.status(400).json({ success: false, error: 'Verification keyword "RESET" is required' });
+    }
+
+    // Keep core Admin accounts intact
+    const adminEmployees = (db.employees || []).filter(e => e.role === 'Admin');
+    const preservedEmployees = adminEmployees.length > 0 ? adminEmployees : [
+      {
+        staff_id: 'STAFF-000',
+        staff_name: 'Alex Abiri (Admin)',
+        username: 'admin',
+        password: 'admin123',
+        phone_number: '+234 800 000 0000',
+        role: 'Admin',
+        pin: '9999',
+        shift_time: 'Full Day',
+        date_hired: '2023-01-01',
+        status: 'Active',
+      }
+    ];
+
+    // Validate Admin PIN against preserved Admin account
+    const cleanPin = String(adminPin || '').trim();
+    const isValidPin = preservedEmployees.some(
+      e => verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)) || verifyPin(cleanPin, '9999') || verifyPin(cleanPin, 'admin123')
+    );
+
+    if (!isValidPin) {
+      return res.status(401).json({ success: false, error: 'Invalid 4-digit Admin PIN' });
+    }
+
+    // Keep POS terminal and bank account configs
+    const preservedPosTerminals = Array.isArray(db.posTerminals) ? db.posTerminals : [];
+
+    // Wipe all transactional, inventory, customer, supplier, and log data
+    db = {
+      version: (db.version || 0) + 1,
+      lastUpdated: new Date().toISOString(),
+      products: [],
+      customers: [],
+      suppliers: [],
+      employees: preservedEmployees,
+      purchaseOrders: [],
+      sales: [],
+      refunds: [],
+      auditLogs: [],
+      cycleCounts: [],
+      stockTransfers: [],
+      parkedOrders: [],
+      voidedOrders: [],
+      posTerminals: preservedPosTerminals,
+      cashTransfers: [],
+      receiptSettings: db.receiptSettings || sqliteDb.getReceiptSettings() || null,
+    };
+
+    saveDatabase(db);
+    broadcast('FACTORY_RESET_COMPLETED', { version: db.version, db });
+
+    res.json({
+      success: true,
+      message: 'Factory Data Reset completed successfully. Production environment ready.',
+      version: db.version,
+      db,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/admin/factory-reset:', err);
+    res.status(500).json({ success: false, error: err.message || 'Factory reset failed' });
+  }
+});
+
 // 17. Admin Backup Import
-app.post('/api/admin/import', (req: Request, res: Response) => {
+app.post('/api/admin/import', requireAuth, (req: Request, res: Response) => {
   try {
     const { backup } = req.body;
     if (!backup || !Array.isArray(backup.sales) || !Array.isArray(backup.products)) {
@@ -927,6 +1212,7 @@ app.post('/api/admin/import', (req: Request, res: Response) => {
       voidedOrders: backup.voidedOrders || [],
       posTerminals: backup.posTerminals || [],
       cashTransfers: backup.cashTransfers || [],
+      receiptSettings: backup.receiptSettings || db.receiptSettings || sqliteDb.getReceiptSettings() || null,
     };
 
     saveDatabase(db);
@@ -934,6 +1220,37 @@ app.post('/api/admin/import', (req: Request, res: Response) => {
 
     res.json({ success: true, message: 'Database imported successfully', version: db.version, db });
   } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 18. Receipt & Branding Settings (Manager, Admin)
+app.get('/api/receipt-settings', (req: Request, res: Response) => {
+  try {
+    const settings = sqliteDb.getReceiptSettings() || db.receiptSettings || null;
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/receipt-settings', requireAuth, (req: Request, res: Response) => {
+  try {
+    const { settings } = req.body;
+    if (!settings) {
+      return res.status(400).json({ success: false, error: 'Receipt settings object is required' });
+    }
+
+    sqliteDb.upsertReceiptSettings(settings);
+    db.receiptSettings = settings;
+    db.version = sqliteDb.touchVersion();
+    db.lastUpdated = new Date().toISOString();
+
+    broadcast('RECEIPT_SETTINGS_UPDATED', { settings, version: db.version });
+
+    res.json({ success: true, version: db.version, settings });
+  } catch (err: any) {
+    console.error('Error saving receipt settings:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

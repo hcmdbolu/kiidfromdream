@@ -63,6 +63,10 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
     title: 'Staff & Role Security Administration',
     subtitle: 'Standard enterprise RBAC, staff credentials, security PINs, and shift scheduling.',
   },
+  receipt_settings: {
+    title: 'Receipt & Branding Customization',
+    subtitle: 'Configure store logo, contact info, thermal roll width, tax registration, and customer return policies.',
+  },
 };
 
 export const AppHeader: React.FC<AppHeaderProps> = ({

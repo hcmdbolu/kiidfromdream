@@ -14,10 +14,12 @@ import { RefundModal } from './components/refund/RefundModal';
 import { LoginAuthModal } from './components/auth/LoginAuthModal';
 import { StaffManagerModal } from './components/admin/StaffManagerModal';
 import { StaffAndRolesManager } from './components/admin/StaffAndRolesManager';
+import { FactoryResetModal } from './components/admin/FactoryResetModal';
 import { CashReconciliationManager } from './components/finance/CashReconciliationManager';
 import { PosTerminalSetupManager } from './components/pos/PosTerminalSetupManager';
 import { CycleCountModal } from './components/inventory/CycleCountModal';
 import { StockTransferModal } from './components/inventory/StockTransferModal';
+import { ReceiptBrandingManager } from './components/admin/ReceiptBrandingManager';
 import { SaleTransaction, UserRole } from './types';
 import { PanelLeftOpen } from 'lucide-react';
 
@@ -31,6 +33,8 @@ function MainApp() {
     isAuthModalOpen,
     authModalMode,
     closeLoginModal,
+    isFactoryResetModalOpen,
+    closeFactoryResetModal,
   } = usePos();
 
   const [currentTab, setCurrentTab] = useState<string>('pos');
@@ -113,8 +117,8 @@ function MainApp() {
   useEffect(() => {
     const role = activeStaff.role;
     const restrictedTabsForRole: Record<UserRole, string[]> = {
-      Cashier: ['inventory', 'suppliers', 'reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'customers'],
-      Supervisor: ['reports', 'audit', 'staff', 'reconciliation', 'pos_setup'],
+      Cashier: ['inventory', 'suppliers', 'reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'customers', 'receipt_settings'],
+      Supervisor: ['reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'receipt_settings'],
       Manager: ['staff'],
       Admin: [],
     };
@@ -229,6 +233,10 @@ function MainApp() {
             <PosTerminalSetupManager />
           )}
 
+          {currentTab === 'receipt_settings' && !isCashier && !isSupervisor && (
+            <ReceiptBrandingManager />
+          )}
+
           {currentTab === 'staff' && !isCashier && !isSupervisor && activeStaff.role === 'Admin' && (
             <StaffAndRolesManager />
           )}
@@ -295,6 +303,12 @@ function MainApp() {
       <StaffManagerModal
         isOpen={isStaffManagerOpen}
         onClose={() => setIsStaffManagerOpen(false)}
+      />
+
+      {/* Factory Data Reset Confirmation Modal (Admin Only) */}
+      <FactoryResetModal
+        isOpen={isFactoryResetModalOpen}
+        onClose={closeFactoryResetModal}
       />
     </div>
   );

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@page {
+  margin: 0;
+}
+
 @media print {
   body * {
     visibility: hidden;
@@ -13,9 +17,17 @@
     top: 0;
     width: 80mm;
     margin: 0;
-    padding: 10px;
+    padding: 8px;
     background: white !important;
     color: black !important;
+  }
+  #printable-receipt.receipt-58mm {
+    width: 58mm;
+    padding: 4px;
+  }
+  #printable-receipt.receipt-80mm {
+    width: 80mm;
+    padding: 8px;
   }
   #printable-daily-report, #printable-daily-report * {
     visibility: visible;
@@ -29,4 +41,14 @@
     padding: 20px;
     background: white !important;
   }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.animate-shake {
+  animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }

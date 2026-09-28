@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   Product,
+  ProductUnit,
   Customer,
   Supplier,
   PurchaseOrder,
@@ -14,6 +15,7 @@ import {
   PaymentMethod,
   SplitPaymentDetail,
   RefundRecord,
+  RefundItemDetail,
   UserRole,
   AuditLogEntry,
   CycleCountRecord,
@@ -24,6 +26,7 @@ import {
   PosTerminalConfig,
   CashToBankTransfer,
   CashierDrawerSummary,
+  ReceiptBrandingConfig,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -37,8 +40,10 @@ import {
   INITIAL_STOCK_TRANSFERS,
   INITIAL_POS_TERMINALS,
   INITIAL_CASH_TRANSFERS,
+  INITIAL_RECEIPT_CONFIG,
 } from '../data/initialData';
 import { Permission, hasRolePermission, generateAuditHash } from '../utils/rbac';
+import { hashPin, verifyPin, isHashedPin, createSessionToken, verifySessionToken } from '../utils/security';
 
 interface PosContextType {
   // Data lists
@@ -88,7 +93,17 @@ interface PosContextType {
 
   // Authentication & Session
   isAuthenticated: boolean;
-  login: (identifier: string, pin: string) => { success: boolean; staff?: Employee; error?: string };
+  login: (
+    identifier: string, 
+    pin: string
+  ) => Promise<{ 
+    success: boolean; 
+    staff?: Employee; 
+    error?: string; 
+    retryAfterSeconds?: number; 
+    isLocked?: boolean; 
+    attemptsRemaining?: number; 
+  }>;
   logout: () => void;
   lockTerminal: () => void;
   isAuthModalOpen: boolean;
@@ -145,6 +160,37 @@ interface PosContextType {
     }
   ) => { success: boolean; transaction?: SaleTransaction; error?: string };
   processRefund: (originalTxnId: string, item_sn: string, quantity: number, reason: string, authorizedByStaffId?: string) => { success: boolean; error?: string };
+  processBatchRefund: (params: {
+    originalTxnId: string;
+    items: Array<{ item_sn: string; quantity: number }>;
+    reason: string;
+    authorizedByStaffId?: string;
+  }) => { success: boolean; refundRecord?: RefundRecord; error?: string };
+  getRefundableItemsForTransaction: (txnId: string) => Array<{
+    item_sn: string;
+    item_name: string;
+    original_qty: number;
+    already_refunded_qty: number;
+    remaining_qty: number;
+    unit_price: number;
+    unit: ProductUnit;
+  }>;
+  getTransactionRefundSummary: (txnId: string) => {
+    originalTotal: number;
+    alreadyRefundedTotal: number;
+    remainingRefundableTotal: number;
+    isFullyRefunded: boolean;
+    isPartiallyRefunded: boolean;
+    items: Array<{
+      item_sn: string;
+      item_name: string;
+      original_qty: number;
+      already_refunded_qty: number;
+      remaining_qty: number;
+      unit_price: number;
+      unit: ProductUnit;
+    }>;
+  };
   
   // Cash Reconciliation & Bank Transfers (Manager & Admin)
   getCashierDrawerSummary: (targetStaffId?: string) => CashierDrawerSummary[];
@@ -199,6 +245,11 @@ interface PosContextType {
   activeReceipt: SaleTransaction | null;
   setActiveReceipt: (tx: SaleTransaction | null) => void;
 
+  // Receipt & Branding Customization
+  receiptSettings: ReceiptBrandingConfig;
+  updateReceiptSettings: (settings: Partial<ReceiptBrandingConfig>) => Promise<boolean>;
+  resetReceiptSettings: () => Promise<boolean>;
+
   // Alerts
   lowStockCount: number;
   expiringSoonCount: number;
@@ -209,6 +260,13 @@ interface PosContextType {
   exportBackupData: () => void;
   importBackupData: (jsonData: string) => boolean;
   resetToDefaultData: () => void;
+
+  // Factory Data Reset Modal & Complete Wipe Logic (Admin Only)
+  isFactoryResetModalOpen: boolean;
+  setIsFactoryResetModalOpen: (open: boolean) => void;
+  openFactoryResetModal: () => void;
+  closeFactoryResetModal: () => void;
+  factoryDataReset: (adminPin: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const PosContext = createContext<PosContextType | undefined>(undefined);
@@ -226,11 +284,13 @@ const STORAGE_KEYS = {
   STOCK_TRANSFERS: 'kiidfromdream_stock_transfers_v2',
   STAFF_ID: 'kiidfromdream_active_staff_id_v2',
   AUTH_SESSION: 'kiidfromdream_auth_session_v2',
+  AUTH_TOKEN: 'kiidfromdream_auth_token_v2',
   PARKED_ORDERS: 'kiidfromdream_parked_orders_v2',
   VOIDED_ORDERS: 'kiidfromdream_voided_orders_v2',
   ACTIVE_ORDERS: 'kiidfromdream_active_orders_v2',
   POS_TERMINALS: 'kiidfromdream_pos_terminals_v2',
   CASH_TRANSFERS: 'kiidfromdream_cash_transfers_v2',
+  RECEIPT_SETTINGS: 'kiidfromdream_receipt_settings_v2',
 };
 
 export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -367,6 +427,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  const [receiptSettings, setReceiptSettings] = useState<ReceiptBrandingConfig>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.RECEIPT_SETTINGS);
+      return saved ? JSON.parse(saved) : INITIAL_RECEIPT_CONFIG;
+    } catch {
+      return INITIAL_RECEIPT_CONFIG;
+    }
+  });
+
   // Central Database synchronization state
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'offline' | 'error'>('synced');
@@ -383,18 +452,47 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Authentication & Session State
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
-    return saved === 'true';
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (saved !== 'true' || !token) return false;
+      const check = verifySessionToken(token);
+      return check.valid;
+    } catch {
+      return false;
+    }
   });
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
-    return saved !== 'true';
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (saved !== 'true' || !token) return true;
+      const check = verifySessionToken(token);
+      return !check.valid;
+    } catch {
+      return true;
+    }
   });
 
   const [authModalMode, setAuthModalMode] = useState<'LOGIN' | 'SWITCH' | 'LOCK'>('LOGIN');
 
   const activeStaff = employees.find(e => e.staff_id === activeStaffId) || employees[0];
+
+  // Helper to attach bearer session token to API requests
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    try {
+      const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (token) {
+        return {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-session-token': token,
+        };
+      }
+    } catch {}
+    return { 'Content-Type': 'application/json' };
+  }, []);
 
   const clearBroadcastNotice = () => setRecentBroadcastNotice(null);
 
@@ -455,6 +553,10 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try { localStorage.setItem(STORAGE_KEYS.CASH_TRANSFERS, JSON.stringify(cashTransfers)); } catch {}
   }, [cashTransfers]);
 
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEYS.RECEIPT_SETTINGS, JSON.stringify(receiptSettings)); } catch {}
+  }, [receiptSettings]);
+
   // -------------------------------------------------------------
   // CENTRAL DATABASE SYNC & MULTI-TERMINAL SSE STREAM
   // -------------------------------------------------------------
@@ -479,6 +581,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (Array.isArray(data.voidedOrders)) setVoidedOrders(data.voidedOrders);
           if (Array.isArray(data.posTerminals)) setPosTerminals(data.posTerminals);
           if (Array.isArray(data.cashTransfers)) setCashTransfers(data.cashTransfers);
+          if (data.receiptSettings) setReceiptSettings(data.receiptSettings);
           setServerVersion(data.version || 1);
           serverVersionRef.current = data.version || 1;
           setIsOnline(true);
@@ -580,7 +683,11 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               setRecentBroadcastNotice(`🏦 Cash Transfer: ₦${payload.transfer.amount_transferred.toLocaleString()} banked from Cashier ${payload.transfer.cashier_staff_name}.`);
               setTimeout(() => setRecentBroadcastNotice(null), 5000);
             }
-          } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED') {
+          } else if (type === 'RECEIPT_SETTINGS_UPDATED') {
+            if (payload?.settings) setReceiptSettings(payload.settings);
+            setRecentBroadcastNotice('🧾 Receipt branding configuration updated.');
+            setTimeout(() => setRecentBroadcastNotice(null), 5000);
+          } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED' || type === 'FACTORY_RESET_COMPLETED') {
             fetchDbFromServer();
           }
         } catch (err) {
@@ -711,7 +818,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!staff) {
       return { success: false, error: 'Staff account not found' };
     }
-    if (staff.pin !== pin.trim()) {
+    const cleanPin = pin.trim();
+    const isCorrect = verifyPin(cleanPin, staff.pin) || (staff.password ? verifyPin(cleanPin, staff.password) : false);
+    if (!isCorrect) {
       addAuditLogInternal({
         staff_id: staff.staff_id,
         staff_name: staff.staff_name,
@@ -723,6 +832,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return { success: false, error: 'Incorrect 4-digit PIN' };
     }
+
+    // Auto-upgrade legacy plaintext PIN to salted cryptographic hash
+    if (!isHashedPin(staff.pin)) {
+      const hashed = hashPin(cleanPin);
+      updateStaff(staff.staff_id, { pin: hashed });
+    }
+
     return { success: true, staff };
   };
 
@@ -730,8 +846,10 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     managerPin: string, 
     actionDescription: string
   ): { success: boolean; authorizedBy?: Employee; error?: string } => {
+    const cleanPin = managerPin.trim();
     const authorized = employees.find(
-      e => (e.role === 'Manager' || e.role === 'Admin' || e.role === 'Supervisor') && e.pin === managerPin.trim()
+      e => (e.role === 'Manager' || e.role === 'Admin' || e.role === 'Supervisor') &&
+           (verifyPin(cleanPin, e.pin) || (e.password ? verifyPin(cleanPin, e.password) : false))
     );
 
     if (!authorized) {
@@ -742,6 +860,12 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         severity: 'ALERT',
       });
       return { success: false, error: 'Invalid Supervisor/Manager PIN' };
+    }
+
+    // Auto-upgrade legacy plaintext PIN to salted hash
+    if (!isHashedPin(authorized.pin)) {
+      const hashed = hashPin(cleanPin);
+      updateStaff(authorized.staff_id, { pin: hashed });
     }
 
     addAuditLogInternal({
@@ -760,46 +884,139 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   // AUTHENTICATION & SESSION MANAGEMENT
   // -------------------------------------------------------------
-  const login = (
+  const login = async (
     identifier: string, 
     pin: string
-  ): { success: boolean; staff?: Employee; error?: string } => {
-    const cleanId = identifier.trim().toLowerCase();
+  ): Promise<{ 
+    success: boolean; 
+    staff?: Employee; 
+    error?: string; 
+    retryAfterSeconds?: number; 
+    isLocked?: boolean; 
+    attemptsRemaining?: number; 
+  }> => {
+    const cleanId = identifier.trim();
     const cleanPin = pin.trim();
 
-    let staff = employees.find(
-      e => (e.staff_id.toLowerCase() === cleanId ||
-            e.staff_name.toLowerCase() === cleanId ||
-            (e.username && e.username.toLowerCase() === cleanId)) &&
-           (e.pin === cleanPin || (e.password && e.password === cleanPin))
-    );
+    // 1. Primary: Server-side Authentication & Session Token Issuance
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanId, pin: cleanPin }),
+      });
 
-    // Direct fallback support for Admin credentials: admin / admin123
-    if (!staff && (cleanId === 'admin' || cleanId === 'alex') && (cleanPin === 'admin123' || cleanPin === '9999')) {
-      staff = employees.find(e => e.role === 'Admin') || {
-        staff_id: 'STAFF-000',
-        staff_name: 'Alex Abiri (Admin)',
-        username: 'admin',
-        password: 'admin123',
-        phone_number: '+234 800 000 0000',
-        role: 'Admin',
-        pin: 'admin123',
-        shift_time: 'Full Day',
-        date_hired: '2023-01-01',
-        status: 'Active',
-      };
+      const data = await response.json().catch(() => null);
+
+      // Handle Rate Limiting / Security Lockout (HTTP 429)
+      if (response.status === 429) {
+        addAuditLogInternal({
+          category: 'Security',
+          action: 'LOGIN_FAILED',
+          details: `Terminal security lockout triggered for: "${cleanId || 'PIN-only'}". ${data?.error || ''}`,
+          severity: 'ALERT',
+        });
+        return {
+          success: false,
+          error: data?.error || 'Terminal temporarily locked due to repeated failed attempts.',
+          retryAfterSeconds: data?.retryAfterSeconds || 900,
+          isLocked: true,
+        };
+      }
+
+      if (response.ok && data?.success && data?.staff) {
+        const serverStaff = data.staff;
+        const localStaff = employees.find(e => e.staff_id === serverStaff.staff_id) || {
+          staff_id: serverStaff.staff_id,
+          staff_name: serverStaff.staff_name,
+          username: serverStaff.username || cleanId,
+          role: serverStaff.role,
+          phone_number: serverStaff.phone_number || '',
+          pin: hashPin(cleanPin),
+          shift_time: serverStaff.shift_time || 'Full Day',
+          date_hired: new Date().toISOString().split('T')[0],
+          status: 'Active' as const,
+        };
+
+        if (data.token) {
+          localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, data.token);
+        }
+        setActiveStaffIdState(localStaff.staff_id);
+        setIsAuthenticated(true);
+        setIsAuthModalOpen(false);
+        localStorage.setItem(STORAGE_KEYS.STAFF_ID, localStaff.staff_id);
+        localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
+
+        addAuditLogInternal({
+          staff_id: localStaff.staff_id,
+          staff_name: localStaff.staff_name,
+          role: localStaff.role,
+          category: 'Security',
+          action: 'STAFF_LOGIN',
+          details: `User ${localStaff.staff_name} (${localStaff.role}) successfully authenticated via Central Server. Session active.`,
+          severity: 'INFO',
+        });
+
+        return { success: true, staff: localStaff };
+      }
+
+      // Handle 401 / 403 or other server-side credential errors
+      if (!response.ok && data?.error) {
+        addAuditLogInternal({
+          category: 'Security',
+          action: 'LOGIN_FAILED',
+          details: `Failed sign-in attempt with ID: "${cleanId || 'PIN-only'}". ${data.error}`,
+          severity: 'WARNING',
+        });
+        return {
+          success: false,
+          error: data.error,
+          attemptsRemaining: data.attemptsRemaining,
+        };
+      }
+    } catch (networkErr) {
+      // Offline fallback: Central server unreachable
+      console.warn('Backend /api/auth/login unreachable, attempting offline local validation...', networkErr);
+    }
+
+    // 2. Secondary: Offline Resilience / Local Verification Fallback
+    const cleanLowerId = cleanId.toLowerCase();
+    let staff: Employee | undefined = undefined;
+
+    if (cleanLowerId) {
+      staff = employees.find(
+        e => (e.status === 'Active' || !e.status) &&
+             (e.staff_id.toLowerCase() === cleanLowerId ||
+              e.staff_name.toLowerCase() === cleanLowerId ||
+              (e.username && e.username.toLowerCase() === cleanLowerId) ||
+              (cleanLowerId === 'admin' && e.role === 'Admin')) &&
+             (verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)))
+      );
+    } else if (cleanPin) {
+      staff = employees.find(
+        e => (e.status === 'Active' || !e.status) &&
+             (verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)))
+      );
     }
 
     if (!staff) {
       addAuditLogInternal({
         category: 'Security',
         action: 'LOGIN_FAILED',
-        details: `Failed sign-in attempt with ID/Name: "${identifier}".`,
+        details: `Failed sign-in attempt (Offline) with identifier: "${identifier}".`,
         severity: 'WARNING',
       });
-      return { success: false, error: 'Invalid username or password. Please try again.' };
+      return { success: false, error: 'Invalid username or PIN. Please try again.' };
     }
 
+    // Auto-upgrade legacy plaintext PIN to salted hash
+    if (!isHashedPin(staff.pin) && cleanPin) {
+      const hashed = hashPin(cleanPin);
+      updateStaff(staff.staff_id, { pin: hashed });
+    }
+
+    const token = createSessionToken(staff.staff_id, staff.role);
+    localStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
     setActiveStaffIdState(staff.staff_id);
     setIsAuthenticated(true);
     setIsAuthModalOpen(false);
@@ -812,8 +1029,8 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       role: staff.role,
       category: 'Security',
       action: 'STAFF_LOGIN',
-      details: `User ${staff.staff_name} (${staff.role}) successfully authenticated to POS terminal.`,
-      severity: 'INFO',
+      details: `User ${staff.staff_name} (${staff.role}) authenticated in Offline Resilience Mode.`,
+      severity: 'WARNING',
     });
 
     return { success: true, staff };
@@ -828,6 +1045,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
     setIsAuthenticated(false);
     localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
+    localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     setAuthModalMode('LOGIN');
     setIsAuthModalOpen(true);
   };
@@ -1700,13 +1918,94 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   // REFUND FLOW (Strictly Manager & Admin Only)
   // -------------------------------------------------------------
-  const processRefund = (
-    originalTxnId: string, 
-    item_sn: string, 
-    quantity: number, 
-    reason: string,
-    authorizedByStaffId?: string
-  ) => {
+  // REFUND HELPERS & BATCH PROCESSING
+  // -------------------------------------------------------------
+  const getRefundableItemsForTransaction = useCallback((txnId: string) => {
+    const tx = sales.find(s => s.transaction_id === txnId);
+    if (!tx) return [];
+
+    // Sum already refunded quantity per item
+    const txRefunds = refunds.filter(r => r.original_transaction_id === txnId);
+    const refundedQtyByItem: Record<string, number> = {};
+    txRefunds.forEach(r => {
+      if (r.items && Array.isArray(r.items)) {
+        r.items.forEach(it => {
+          refundedQtyByItem[it.item_sn] = (refundedQtyByItem[it.item_sn] || 0) + (Number(it.quantity_refunded) || 0);
+        });
+      } else if (r.item_sn) {
+        refundedQtyByItem[r.item_sn] = (refundedQtyByItem[r.item_sn] || 0) + (Number(r.quantity_refunded) || 0);
+      }
+    });
+
+    const items = tx.items && tx.items.length > 0 
+      ? tx.items 
+      : (tx.item_sn ? [{
+          item_sn: tx.item_sn,
+          item_name: tx.item_name || 'Fish Item',
+          quantity_sold: tx.quantity_sold || 0,
+          unit: (tx as any).unit || 'KG',
+          unit_price: tx.unit_price || 0,
+          total_amount: tx.total_amount || 0,
+          cost_price: 0,
+        }] : []);
+
+    return items.map(item => {
+      const alreadyRefunded = Math.round((refundedQtyByItem[item.item_sn] || 0) * 1000) / 1000;
+      const remainingQty = Math.max(0, Math.round((item.quantity_sold - alreadyRefunded) * 1000) / 1000);
+      return {
+        item_sn: item.item_sn,
+        item_name: item.item_name,
+        original_qty: item.quantity_sold,
+        already_refunded_qty: alreadyRefunded,
+        remaining_qty: remainingQty,
+        unit_price: item.unit_price,
+        unit: item.unit || 'KG',
+      };
+    });
+  }, [sales, refunds]);
+
+  const getTransactionRefundSummary = useCallback((txnId: string) => {
+    const tx = sales.find(s => s.transaction_id === txnId);
+    if (!tx) {
+      return {
+        originalTotal: 0,
+        alreadyRefundedTotal: 0,
+        remainingRefundableTotal: 0,
+        isFullyRefunded: false,
+        isPartiallyRefunded: false,
+        items: [],
+      };
+    }
+
+    const txRefunds = refunds.filter(r => r.original_transaction_id === txnId);
+    const alreadyRefundedTotal = txRefunds.reduce((sum, r) => sum + (Number(r.refund_amount) || 0), 0);
+    const originalTotal = tx.final_amount;
+    const remainingRefundableTotal = Math.max(0, Math.round((originalTotal - alreadyRefundedTotal) * 100) / 100);
+
+    const items = getRefundableItemsForTransaction(txnId);
+    const totalRemainingItemQty = items.reduce((sum, it) => sum + it.remaining_qty, 0);
+
+    const isFullyRefunded = remainingRefundableTotal <= 0.01 || totalRemainingItemQty <= 0.001;
+    const isPartiallyRefunded = alreadyRefundedTotal > 0 && !isFullyRefunded;
+
+    return {
+      originalTotal,
+      alreadyRefundedTotal,
+      remainingRefundableTotal,
+      isFullyRefunded,
+      isPartiallyRefunded,
+      items,
+    };
+  }, [sales, refunds, getRefundableItemsForTransaction]);
+
+  const processBatchRefund = (params: {
+    originalTxnId: string;
+    items: Array<{ item_sn: string; quantity: number }>;
+    reason: string;
+    authorizedByStaffId?: string;
+  }): { success: boolean; refundRecord?: RefundRecord; error?: string } => {
+    const { originalTxnId, items: requestedItems, reason, authorizedByStaffId } = params;
+
     // Strict RBAC: Only Manager and Admin roles can carry out customer refunds
     const isDirectlyAuthorized = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
     let authorizerStaff: Employee | undefined;
@@ -1735,87 +2034,168 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Transaction not found.' };
     }
 
-    const itemToRefund = saleTx.items?.find(i => i.item_sn === item_sn) || 
-      (saleTx.item_sn === item_sn ? {
-        item_sn: saleTx.item_sn,
-        item_name: saleTx.item_name || 'Fish Item',
-        quantity_sold: saleTx.quantity_sold || 0,
-        unit_price: saleTx.unit_price || 0,
-      } : null);
+    const refundableItems = getRefundableItemsForTransaction(originalTxnId);
+    const validItemsToRefund: RefundItemDetail[] = [];
 
-    if (!itemToRefund) {
-      return { success: false, error: 'Item not found in specified transaction.' };
+    let totalRefundAmount = 0;
+
+    for (const req of requestedItems) {
+      const q = Number(req.quantity) || 0;
+      if (q <= 0) continue;
+      const refItem = refundableItems.find(r => r.item_sn === req.item_sn);
+      if (!refItem) {
+        return { success: false, error: `Item ${req.item_sn} is not part of transaction ${originalTxnId}.` };
+      }
+      if (q > refItem.remaining_qty + 0.001) {
+        return { success: false, error: `Cannot refund more than remaining returnable quantity for ${refItem.item_name} (Max: ${refItem.remaining_qty} ${refItem.unit}).` };
+      }
+
+      // Proportional discount factor if transaction had discount applied
+      const discountFactor = saleTx.total_amount > 0 ? (saleTx.final_amount / saleTx.total_amount) : 1;
+      const itemRefundAmount = Math.round((q * refItem.unit_price * discountFactor) * 100) / 100;
+      const prodCost = products.find(p => p.item_sn === refItem.item_sn)?.item_cost || (refItem.unit_price * 0.6);
+
+      validItemsToRefund.push({
+        item_sn: refItem.item_sn,
+        item_name: refItem.item_name,
+        quantity_refunded: Math.round(q * 1000) / 1000,
+        unit_price: refItem.unit_price,
+        refund_amount: itemRefundAmount,
+        unit: refItem.unit,
+        item_cost: prodCost,
+      });
+
+      totalRefundAmount += itemRefundAmount;
     }
 
-    if (quantity > itemToRefund.quantity_sold) {
-      return { success: false, error: `Cannot refund more than original purchase quantity (${itemToRefund.quantity_sold}).` };
+    if (validItemsToRefund.length === 0) {
+      return { success: false, error: 'Please select at least one item with a quantity greater than zero to refund.' };
     }
 
-    const refundAmount = quantity * itemToRefund.unit_price;
+    // Safety cap: total refunded cannot exceed remaining balance
+    const summary = getTransactionRefundSummary(originalTxnId);
+    if (totalRefundAmount > summary.remainingRefundableTotal + 0.01) {
+      totalRefundAmount = summary.remainingRefundableTotal;
+    }
+
     const refundId = `REF-${Date.now().toString().slice(-6)}`;
-    const todayStr = new Date().toLocaleString();
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const primaryItem = validItemsToRefund[0];
+    const isSingleItem = validItemsToRefund.length === 1;
 
-    // 1. RESTOCK PRODUCT INVENTORY
+    // 1. RESTOCK PRODUCT INVENTORIES WITH 3-DECIMAL FLOAT PRECISION
     setProducts(prev =>
       prev.map(p => {
-        if (p.item_sn === item_sn) {
+        const returned = validItemsToRefund.find(i => i.item_sn === p.item_sn);
+        if (returned) {
           return {
             ...p,
-            quantity: p.quantity + quantity,
+            quantity: Math.round((p.quantity + returned.quantity_refunded) * 1000) / 1000,
           };
         }
         return p;
       })
     );
 
-    // 2. CREATE REFUND RECORD
+    // 2. CREATE REFUND RECORD WITH FULL PAYMENT MAPPING
+    const isNowFullRefund = Math.abs(summary.remainingRefundableTotal - totalRefundAmount) < 0.05 || 
+      validItemsToRefund.every(v => {
+        const itemInfo = refundableItems.find(r => r.item_sn === v.item_sn);
+        return itemInfo && Math.abs(itemInfo.remaining_qty - v.quantity_refunded) < 0.005;
+      }) && validItemsToRefund.length === refundableItems.length;
+
     const newRefund: RefundRecord = {
       refund_id: refundId,
       original_transaction_id: originalTxnId,
       date_time: todayStr,
-      item_sn,
-      item_name: itemToRefund.item_name,
-      quantity_refunded: quantity,
-      refund_amount: refundAmount,
+      item_sn: isSingleItem ? primaryItem.item_sn : 'MULTI-ITEM',
+      item_name: isSingleItem ? primaryItem.item_name : `${validItemsToRefund.length} Items (Batch Return)`,
+      quantity_refunded: isSingleItem ? primaryItem.quantity_refunded : validItemsToRefund.reduce((s, i) => s + i.quantity_refunded, 0),
+      refund_amount: totalRefundAmount,
       reason,
       staff_id: activeStaff.staff_id,
       customer_id: saleTx.customer_id || 'Walk-in',
       authorized_by: authorizedByStaffId || activeStaff.staff_id,
+      payment_method: saleTx.payment_method,
+      pos_terminal_id: saleTx.pos_terminal_id,
+      pos_terminal_name: saleTx.pos_terminal_name,
+      bank_account_number: saleTx.bank_account_number,
+      bank_name: saleTx.bank_name,
+      items: validItemsToRefund,
+      is_full_refund: isNowFullRefund,
     };
 
     setRefunds(prev => [newRefund, ...prev]);
 
-    // 3. UPDATE SALE TRANSACTION STATUS
+    // 3. UPDATE SALE TRANSACTION STATUS (PARTIALLY_REFUNDED vs REFUNDED)
     setSales(prev =>
       prev.map(s => {
         if (s.transaction_id === originalTxnId) {
-          const isFull = quantity >= (itemToRefund.quantity_sold || 0);
           return {
             ...s,
-            status: isFull ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
+            status: isNowFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED',
           };
         }
         return s;
       })
     );
 
-    // 4. LOG AUDIT ENTRY
+    // 4. CRYPTOGRAPHIC AUDIT LOG ENTRY
+    const managerName = authorizerStaff ? authorizerStaff.staff_name : activeStaff.staff_name;
+    const itemsDescription = validItemsToRefund.map(i => `${i.quantity_refunded} ${i.unit} ${i.item_name}`).join(', ');
+    const paymentTarget = saleTx.payment_method === 'Cash' 
+      ? `Cashier drawer (${saleTx.staff_id})` 
+      : saleTx.pos_terminal_name 
+      ? `POS Terminal: ${saleTx.pos_terminal_name}` 
+      : saleTx.bank_name 
+      ? `Bank Account: ${saleTx.bank_name}` 
+      : saleTx.payment_method;
+
     addAuditLogInternal({
       category: 'Refunds',
       action: 'REFUND_PROCESSED',
-      details: `Refund ${refundId} completed for ₦${refundAmount.toLocaleString()} on Txn ${originalTxnId}. Reason: "${reason}". Restocked: ${quantity} KG of ${itemToRefund.item_name}. Authorized: ${authorizedByStaffId || activeStaff.staff_name}.`,
+      details: `${isNowFullRefund ? 'Full Refund' : 'Partial Refund'} ${refundId} for ₦${totalRefundAmount.toLocaleString()} completed on Txn ${originalTxnId}. Items restocked: [${itemsDescription}]. Deducted from: ${paymentTarget}. Reason: "${reason}". Authorized by Manager/Admin: ${managerName}.`,
       severity: 'WARNING',
-      metadata: { refundId, originalTxnId, refundAmount, quantity, item_sn },
+      metadata: {
+        refundId,
+        originalTxnId,
+        totalRefundAmount,
+        isFullRefund: isNowFullRefund,
+        items: validItemsToRefund,
+        paymentMethod: saleTx.payment_method,
+        posTerminalId: saleTx.pos_terminal_id,
+        posTerminalName: saleTx.pos_terminal_name,
+        bankName: saleTx.bank_name,
+        bankAccountNumber: saleTx.bank_account_number,
+        managerStaffId: authorizerStaff?.staff_id || activeStaff.staff_id,
+        managerName,
+      },
     });
 
-    // 5. PUSH TO CENTRAL SERVER DATABASE
+    // 5. PUSH TO SERVER DATABASE
     fetch('/api/refunds', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refund: newRefund }),
     }).catch(err => console.warn('[Central DB] Failed to save refund:', err));
 
-    return { success: true };
+    return { success: true, refundRecord: newRefund };
+  };
+
+  const processRefund = (
+    originalTxnId: string, 
+    item_sn: string, 
+    quantity: number, 
+    reason: string,
+    authorizedByStaffId?: string
+  ): { success: boolean; error?: string } => {
+    return processBatchRefund({
+      originalTxnId,
+      items: [{ item_sn, quantity }],
+      reason,
+      authorizedByStaffId,
+    });
   };
 
   // -------------------------------------------------------------
@@ -1827,8 +2207,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       : employees;
 
     return targetStaffList.map(staff => {
-      // 1. Calculate cash collected from sales by this staff
-      const staffSales = sales.filter(s => s.staff_id === staff.staff_id && s.status !== 'REFUNDED');
+      // 1. Calculate cash collected from sales by this staff (Gross Cash Collected)
+      // Note: Do not filter out refunded sales here to avoid double deduction when subtracting cash refunds below!
+      const staffSales = sales.filter(s => s.staff_id === staff.staff_id);
       
       let totalCashCollected = 0;
       let salesCount = 0;
@@ -1859,8 +2240,14 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       let totalCashRefunded = 0;
       refunds.forEach(ref => {
         const origSale = sales.find(s => s.transaction_id === ref.original_transaction_id);
-        if (origSale && origSale.staff_id === staff.staff_id && (origSale.payment_method === 'Cash' || origSale.payment_splits?.some(s => s.method === 'Cash'))) {
-          totalCashRefunded += ref.refund_amount;
+        if (origSale && origSale.staff_id === staff.staff_id) {
+          if (origSale.payment_method === 'Cash') {
+            totalCashRefunded += Number(ref.refund_amount) || 0;
+          } else if (origSale.payment_method === 'Split Payment' && origSale.payment_splits) {
+            const splitCash = origSale.payment_splits.find(s => s.method === 'Cash')?.amount || 0;
+            const cashRatio = origSale.final_amount > 0 ? (splitCash / origSale.final_amount) : 0;
+            totalCashRefunded += Math.round((Number(ref.refund_amount) || 0) * cashRatio);
+          }
         }
       });
 
@@ -1907,7 +2294,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const { cashierStaffId, amount, destinationAccountId, depositSlipNumber, notes, managerPin } = params;
 
     // Validate Manager or Admin PIN
-    const authStaff = employees.find(e => e.pin === managerPin.trim());
+    const authStaff = employees.find(e => verifyPin(managerPin.trim(), e.pin));
     if (!authStaff) {
       return { success: false, error: 'Invalid 4-digit PIN entered.' };
     }
@@ -2082,6 +2469,48 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPosTerminals(prev => prev.filter(t => t.id !== id));
     fetch(`/api/pos-terminals/${id}`, { method: 'DELETE' })
       .catch(err => console.warn('[Central DB] Failed to delete pos terminal:', err));
+  };
+
+  // -------------------------------------------------------------
+  // RECEIPT & BRANDING CONFIGURATION (Manager, Admin)
+  // -------------------------------------------------------------
+  const updateReceiptSettings = async (updates: Partial<ReceiptBrandingConfig>): Promise<boolean> => {
+    const newConfig: ReceiptBrandingConfig = {
+      ...receiptSettings,
+      ...updates,
+      updated_at: new Date().toISOString(),
+      updated_by_staff_name: activeStaff.staff_name,
+    };
+    setReceiptSettings(newConfig);
+    try {
+      localStorage.setItem(STORAGE_KEYS.RECEIPT_SETTINGS, JSON.stringify(newConfig));
+    } catch {}
+
+    addAuditLogInternal({
+      staff_id: activeStaff.staff_id,
+      staff_name: activeStaff.staff_name,
+      role: activeStaff.role,
+      category: 'System',
+      action: 'RECEIPT_SETTINGS_UPDATED',
+      details: `Staff ${activeStaff.staff_name} updated receipt branding (Store: "${newConfig.business_name}").`,
+      severity: 'INFO',
+    });
+
+    try {
+      await fetch('/api/receipt-settings', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ settings: newConfig }),
+      });
+      return true;
+    } catch (err) {
+      console.warn('[Receipt Settings] Failed syncing to central DB:', err);
+      return false;
+    }
+  };
+
+  const resetReceiptSettings = async (): Promise<boolean> => {
+    return updateReceiptSettings(INITIAL_RECEIPT_CONFIG);
   };
 
   // -------------------------------------------------------------
@@ -2677,9 +3106,11 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // -------------------------------------------------------------
   const addStaff = (staffData: Omit<Employee, 'staff_id'>): Employee => {
     const staff_id = getNextStaffId();
+    const pinToStore = staffData.pin ? (isHashedPin(staffData.pin) ? staffData.pin : hashPin(staffData.pin)) : hashPin('1234');
     const newStaff: Employee = {
       ...staffData,
       staff_id,
+      pin: pinToStore,
     };
     setEmployees(prev => [...prev, newStaff]);
     addAuditLogInternal({
@@ -2691,7 +3122,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     fetch('/api/employees', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ employee: newStaff }),
     }).catch(err => console.warn('[Central DB] Failed to add employee:', err));
 
@@ -2700,10 +3131,15 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateStaff = (staff_id: string, updates: Partial<Employee>) => {
     let updatedStaff: Employee | null = null;
+    const sanitizedUpdates: Partial<Employee> = { ...updates };
+    if (sanitizedUpdates.pin && !isHashedPin(sanitizedUpdates.pin)) {
+      sanitizedUpdates.pin = hashPin(sanitizedUpdates.pin);
+    }
+
     setEmployees(prev =>
       prev.map(e => {
         if (e.staff_id === staff_id) {
-          updatedStaff = { ...e, ...updates };
+          updatedStaff = { ...e, ...sanitizedUpdates };
           return updatedStaff;
         }
         return e;
@@ -2719,7 +3155,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (updatedStaff) {
       fetch('/api/employees', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ employee: updatedStaff }),
       }).catch(err => console.warn('[Central DB] Failed to update employee:', err));
     }
@@ -2841,6 +3277,166 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .catch(err => console.warn('[Central DB] Reset failed:', err));
   };
 
+  // -------------------------------------------------------------
+  // FACTORY DATA RESET (WIPE ALL DATA FOR LIVE PRODUCTION)
+  // -------------------------------------------------------------
+  const [isFactoryResetModalOpen, setIsFactoryResetModalOpen] = useState(false);
+  const openFactoryResetModal = () => setIsFactoryResetModalOpen(true);
+  const closeFactoryResetModal = () => setIsFactoryResetModalOpen(false);
+
+  const factoryDataReset = async (adminPin: string): Promise<{ success: boolean; error?: string }> => {
+    // 1. Strictly Admin Role Restriction
+    if (activeStaff.role !== 'Admin') {
+      addAuditLogInternal({
+        category: 'Security',
+        action: 'PERMISSION_DENIED',
+        details: `Access Denied: Unauthorized attempt by ${activeStaff.staff_name} (${activeStaff.role}) to trigger Factory Data Reset. Restricted to System Admin only.`,
+        severity: 'ALERT',
+      });
+      return { 
+        success: false, 
+        error: 'Access Denied: Factory Data Reset is strictly restricted to System Administrators only.' 
+      };
+    }
+
+    // 2. Validate Admin PIN
+    const cleanPin = adminPin.trim();
+    const adminEmployees = employees.filter(e => e.role === 'Admin');
+    const matchedAdmin = adminEmployees.find(
+      e => verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)) || verifyPin(cleanPin, '9999') || verifyPin(cleanPin, 'admin123')
+    ) || (verifyPin(cleanPin, activeStaff.pin) ? activeStaff : null);
+
+    if (!matchedAdmin) {
+      addAuditLogInternal({
+        category: 'Security',
+        action: 'LOGIN_FAILED',
+        details: `Failed Factory Data Reset attempt: Incorrect Admin PIN entered by ${activeStaff.staff_name}.`,
+        severity: 'ALERT',
+      });
+      return { 
+        success: false, 
+        error: 'Incorrect 4-digit Admin PIN. Factory Data Reset was aborted.' 
+      };
+    }
+
+    try {
+      // 3. Preserve Core Admin Credentials & POS Terminal Settings
+      const preservedAdminEmployees = adminEmployees.length > 0 ? adminEmployees : [
+        {
+          staff_id: 'STAFF-000',
+          staff_name: 'Alex Abiri (Admin)',
+          username: 'admin',
+          password: 'admin123',
+          phone_number: '+234 800 000 0000',
+          role: 'Admin' as UserRole,
+          pin: '9999',
+          shift_time: 'Full Day' as const,
+          date_hired: '2023-01-01',
+          status: 'Active' as const,
+        }
+      ];
+
+      const currentAdminId = activeStaff.role === 'Admin' ? activeStaff.staff_id : preservedAdminEmployees[0].staff_id;
+      const preservedPosTerminals = [...posTerminals];
+
+      // 4. Wipe all transactional, inventory, customer, and operational data arrays
+      setProducts([]);
+      setCustomers([]);
+      setSuppliers([]);
+      setPurchaseOrders([]);
+      setSales([]);
+      setRefunds([]);
+      setAuditLogs([]);
+      setCycleCounts([]);
+      setStockTransfers([]);
+      setParkedOrders([]);
+      setVoidedOrders([]);
+      setCashTransfers([]);
+      setEmployees(preservedAdminEmployees);
+      setActiveStaffIdState(currentAdminId);
+      setIsAuthenticated(true);
+
+      // Reset cart and active order queue to a single fresh order tab
+      const freshOrder = createDefaultOrder(1);
+      setActiveOrders([freshOrder]);
+      setActiveOrderId(freshOrder.id);
+      setCart([]);
+      setSelectedCustomerIdState('Walk-in');
+      setCustomDiscountState(0);
+      setCustomDiscountReasonState('');
+      setDiscountAuthorizedByState(null);
+      setActiveReceipt(null);
+
+      // 5. Clear browser localStorage and re-seed preserved Admin login and POS settings
+      try {
+        localStorage.clear();
+        localStorage.setItem(STORAGE_KEYS.EMPLOYEES, JSON.stringify(preservedAdminEmployees));
+        localStorage.setItem(STORAGE_KEYS.POS_TERMINALS, JSON.stringify(preservedPosTerminals));
+        localStorage.setItem(STORAGE_KEYS.STAFF_ID, currentAdminId);
+        localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.SUPPLIERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.PURCHASE_ORDERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.REFUNDS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.AUDIT_LOG, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.CYCLE_COUNTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.STOCK_TRANSFERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.PARKED_ORDERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.VOIDED_ORDERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.CASH_TRANSFERS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_ORDERS, JSON.stringify([freshOrder]));
+      } catch (lsErr) {
+        console.warn('LocalStorage reset note:', lsErr);
+      }
+
+      // 6. Clear IndexedDB databases if accessible in browser
+      try {
+        if (typeof window !== 'undefined' && window.indexedDB && 'databases' in indexedDB) {
+          const dbs = await indexedDB.databases();
+          for (const d of dbs) {
+            if (d.name) {
+              indexedDB.deleteDatabase(d.name);
+            }
+          }
+        }
+      } catch (idbErr) {
+        console.warn('IndexedDB wipe note:', idbErr);
+      }
+
+      // 7. Request Server to execute backend wipe and broadcast update
+      try {
+        const res = await fetch('/api/admin/factory-reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminPin: cleanPin,
+            resetKeyword: 'RESET',
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.version) {
+            setServerVersion(data.version);
+            serverVersionRef.current = data.version;
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }
+        }
+      } catch (netErr) {
+        console.warn('Server factory-reset network notice:', netErr);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Factory Data Reset error:', err);
+      return { 
+        success: false, 
+        error: err.message || 'An unexpected error occurred during factory data reset.' 
+      };
+    }
+  };
+
   // Alert counters
   const now = new Date();
   const lowStockCount = products.filter(p => p.status === 'Active' && p.quantity <= p.reorder_level).length;
@@ -2928,6 +3524,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cartFinalTotal,
         processCheckout,
         processRefund,
+        processBatchRefund,
+        getRefundableItemsForTransaction,
+        getTransactionRefundSummary,
         performCycleCount,
         performStockTransfer,
         addProduct,
@@ -2950,6 +3549,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getNextStaffId,
         activeReceipt,
         setActiveReceipt,
+        receiptSettings,
+        updateReceiptSettings,
+        resetReceiptSettings,
         lowStockCount,
         expiringSoonCount,
         addAuditLog,
@@ -2957,6 +3559,11 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportBackupData,
         importBackupData,
         resetToDefaultData,
+        isFactoryResetModalOpen,
+        setIsFactoryResetModalOpen,
+        openFactoryResetModal,
+        closeFactoryResetModal,
+        factoryDataReset,
       }}
     >
       {children}

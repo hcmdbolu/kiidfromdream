@@ -1,37 +1,51 @@
 {
-  "name": "react-example",
+  "name": "kiidfromdream-pos",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.7",
+  "description": "KIID FROM DREAM POS & Inventory System",
+  "author": "Alex Abiri",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "tsx --experimental-sqlite server.ts",
     "build": "vite build",
-    "start": "node server.ts",
+    "build:server": "esbuild server.ts --bundle --platform=node --target=node18 --format=esm --packages=external --outfile=dist/server.js",
+    "build:all": "vite build && npm run build:server",
+    "start": "node --experimental-sqlite dist/server.js",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"const fs = require('fs'); ['dist', 'release', 'out', 'dist-electron'].forEach(d => fs.rmSync(d, { recursive: true, force: true })); try { fs.rmSync('server.js', { force: true }); } catch {}\"",
+    "lint": "tsc --noEmit",
+    "electron": "electron .",
+    "electron:dev": "concurrently -k \"tsx --experimental-sqlite server.ts\" \"wait-on tcp:3000 && electron .\"",
+    "electron:build": "npm run build:all && electron-builder --dir",
+    "electron:dist": "npm run build:all && electron-builder",
+    "dist": "npm run electron:dist"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
     "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^8.3.0",
-    "express": "^4.21.2",
-    "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
+    "concurrently": "^10.0.5",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
-    "@types/express": "^4.17.21"
+    "wait-on": "^9.1.0"
   }
 }

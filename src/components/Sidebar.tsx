@@ -18,6 +18,7 @@ import {
   ClipboardCheck, 
   ArrowLeftRight, 
   Download,
+  Trash2,
   PauseCircle,
   X,
   PanelLeftClose,
@@ -27,7 +28,8 @@ import {
   Sparkles,
   Banknote,
   CreditCard,
-  Wallet
+  Wallet,
+  Printer
 } from 'lucide-react';
 import { ROLE_BADGES } from '../utils/rbac';
 
@@ -71,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     lockTerminal,
     logout,
     exportBackupData,
+    openFactoryResetModal,
     syncStatus,
     serverVersion,
     lastSyncTime,
@@ -150,6 +153,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: CreditCard, 
           badge: `${posTerminals.length} mapped`,
           badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30',
+          allowed: ['Manager', 'Admin'].includes(activeStaff.role),
+        },
+        { 
+          id: 'receipt_settings', 
+          label: 'Receipt & Branding', 
+          icon: Printer, 
+          badge: null,
           allowed: ['Manager', 'Admin'].includes(activeStaff.role),
         },
         { 
@@ -468,6 +478,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="truncate">Export JSON Backup</span>
                     </div>
                     <span className="text-[10px] text-slate-500 font-mono">Admin</span>
+                  </button>
+                )}
+
+                {/* Factory Data Reset - Strictly Admin Only */}
+                {activeStaff.role === 'Admin' && (
+                  <button
+                    type="button"
+                    onClick={openFactoryResetModal}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 border border-rose-950 hover:border-rose-800/80 transition-all cursor-pointer group"
+                    title="Factory Data Reset - Wipe all transactional data for clean production"
+                  >
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500 group-hover:scale-110 transition-transform shrink-0" />
+                      <span className="truncate font-semibold">Factory Data Reset</span>
+                    </div>
+                    <span className="text-[10px] text-rose-400 bg-rose-950/70 border border-rose-800/60 px-1.5 py-0.5 rounded font-mono">Wipe</span>
                   </button>
                 )}
               </div>
