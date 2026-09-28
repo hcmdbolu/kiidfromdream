@@ -559,19 +559,27 @@ app.post('/api/refunds', (req: Request, res: Response) => {
 app.post('/api/orders/park', (req: Request, res: Response) => {
   try {
     const { order, action } = req.body;
-    if (!order || !order.order_id) {
+    if (!order || (!order.order_id && !order.id)) {
       return res.status(400).json({ success: false, error: 'Order data is required' });
     }
 
+    if (!Array.isArray(db.parkedOrders)) {
+      db.parkedOrders = [];
+    }
+
+    const targetId = order.order_id || order.id;
+
     if (action === 'DELETE' || action === 'RESUME') {
-      db.parkedOrders = db.parkedOrders.filter(o => o.order_id !== order.order_id);
+      db.parkedOrders = db.parkedOrders.filter(o => (o.order_id || o.id) !== targetId);
+      sqliteDb.deleteParkedOrder(targetId);
     } else {
-      const idx = db.parkedOrders.findIndex(o => o.order_id === order.order_id);
+      const idx = db.parkedOrders.findIndex(o => (o.order_id || o.id) === targetId);
       if (idx !== -1) {
-        db.parkedOrders[idx] = { ...db.parkedOrders[idx], ...order };
+        db.parkedOrders[idx] = { ...db.parkedOrders[idx], ...order, order_id: targetId };
       } else {
-        db.parkedOrders.unshift(order);
+        db.parkedOrders.unshift({ ...order, order_id: targetId });
       }
+      sqliteDb.upsertParkedOrder(order);
     }
 
     saveDatabase();

@@ -293,6 +293,75 @@ const STORAGE_KEYS = {
   RECEIPT_SETTINGS: 'kiidfromdream_receipt_settings_v2',
 };
 
+export function normalizeParkedOrder(po: any): ParkedOrder {
+  if (!po || typeof po !== 'object') {
+    return {
+      order_id: `ORD-PARK-${Date.now()}`,
+      order_number: 1,
+      order_label: 'Walk-in Order',
+      created_at: new Date().toISOString(),
+      parked_at: new Date().toISOString(),
+      park_reason: '',
+      customer_id: 'Walk-in',
+      customer_name: 'Walk-in',
+      items: [],
+      customDiscount: 0,
+      customDiscountReason: '',
+      discountAuthorizedBy: null,
+      paymentMode: 'single',
+      selectedPaymentMethod: 'Cash',
+      cashTendered: '',
+      singleRef: '',
+      splitCashAmount: '',
+      splitCashTendered: '',
+      splitSecondMethod: 'POS',
+      splitSecondAmount: '',
+      splitSecondRef: '',
+      splitThirdMethod: null,
+      splitThirdAmount: '',
+      splitThirdRef: '',
+      staff_id: '',
+      staff_name: '',
+      status: 'PARKED',
+    };
+  }
+
+  const id = po.order_id || po.id || `ORD-PARK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const label = po.order_label || po.label || (po.customer_name ? `${po.customer_name} (Held)` : `Held Order #${po.order_number || 1}`);
+  const createdAt = po.created_at || po.parked_at || new Date().toISOString();
+  const parkedAt = po.parked_at || po.created_at || createdAt;
+
+  return {
+    order_id: id,
+    order_number: Number(po.order_number) || 1,
+    order_label: label,
+    created_at: createdAt,
+    parked_at: parkedAt,
+    park_reason: po.park_reason || po.notes || '',
+    customer_id: po.customer_id || 'Walk-in',
+    customer_name: po.customer_name || 'Walk-in',
+    items: Array.isArray(po.items) ? po.items : [],
+    customDiscount: Number(po.customDiscount || po.discount_amount) || 0,
+    customDiscountReason: po.customDiscountReason || '',
+    discountAuthorizedBy: po.discountAuthorizedBy || null,
+    paymentMode: po.paymentMode === 'split' ? 'split' : 'single',
+    selectedPaymentMethod: po.selectedPaymentMethod || 'Cash',
+    cashTendered: String(po.cashTendered || ''),
+    singleRef: String(po.singleRef || ''),
+    splitCashAmount: String(po.splitCashAmount || ''),
+    splitCashTendered: String(po.splitCashTendered || ''),
+    splitSecondMethod: po.splitSecondMethod || 'POS',
+    splitSecondAmount: String(po.splitSecondAmount || ''),
+    splitSecondRef: String(po.splitSecondRef || ''),
+    splitThirdMethod: po.splitThirdMethod || null,
+    splitThirdAmount: String(po.splitThirdAmount || ''),
+    splitThirdRef: String(po.splitThirdRef || ''),
+    staff_id: po.staff_id || '',
+    staff_name: po.staff_name || '',
+    status: 'PARKED',
+  };
+}
+
 export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Load from localStorage as initial cache (for instant paint)
   const [products, setProducts] = useState<Product[]>(() => {
@@ -394,7 +463,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [parkedOrders, setParkedOrders] = useState<ParkedOrder[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PARKED_ORDERS);
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map(normalizeParkedOrder).filter(Boolean);
+        }
+      }
+      return [];
     } catch {
       return [];
     }
@@ -577,7 +652,11 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setAuditLogs(data.auditLogs || []);
           setCycleCounts(data.cycleCounts || []);
           setStockTransfers(data.stockTransfers || []);
-          if (Array.isArray(data.parkedOrders)) setParkedOrders(data.parkedOrders);
+          if (Array.isArray(data.parkedOrders)) {
+            setParkedOrders(data.parkedOrders.map(normalizeParkedOrder).filter(Boolean));
+          } else {
+            setParkedOrders([]);
+          }
           if (Array.isArray(data.voidedOrders)) setVoidedOrders(data.voidedOrders);
           if (Array.isArray(data.posTerminals)) setPosTerminals(data.posTerminals);
           if (Array.isArray(data.cashTransfers)) setCashTransfers(data.cashTransfers);
@@ -669,10 +748,10 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } else if (type === 'EMPLOYEES_UPDATED') {
             if (payload.employees) setEmployees(payload.employees);
           } else if (type === 'PARKED_ORDERS_UPDATED') {
-            if (payload.parkedOrders) setParkedOrders(payload.parkedOrders);
+            if (Array.isArray(payload.parkedOrders)) setParkedOrders(payload.parkedOrders.map(normalizeParkedOrder).filter(Boolean));
           } else if (type === 'ORDER_VOIDED_UPDATE') {
             if (payload.voidedOrders) setVoidedOrders(payload.voidedOrders);
-            if (payload.parkedOrders) setParkedOrders(payload.parkedOrders);
+            if (Array.isArray(payload.parkedOrders)) setParkedOrders(payload.parkedOrders.map(normalizeParkedOrder).filter(Boolean));
             if (payload.auditLogs) setAuditLogs(payload.auditLogs);
           } else if (type === 'POS_TERMINALS_UPDATED') {
             if (payload.posTerminals) setPosTerminals(payload.posTerminals);
@@ -1744,40 +1823,44 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resumeParkedOrder = (orderId: string): { success: boolean; order?: ActiveWalkInOrder; error?: string } => {
-    const parked = parkedOrders.find(p => p.order_id === orderId);
+    if (!orderId) return { success: false, error: 'No order ID specified' };
+    const safeList = Array.isArray(parkedOrders) ? parkedOrders : [];
+    const parked = safeList.find(p => (p.order_id || (p as any).id) === orderId);
     if (!parked) return { success: false, error: 'Parked order not found' };
 
+    const actualId = parked.order_id || (parked as any).id || orderId;
+
     // Remove from parked
-    setParkedOrders(prev => prev.filter(p => p.order_id !== orderId));
+    setParkedOrders(prev => (Array.isArray(prev) ? prev : []).filter(p => (p.order_id || (p as any).id) !== actualId));
 
     fetch('/api/orders/park', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order: { order_id: orderId }, action: 'RESUME' }),
+      body: JSON.stringify({ order: { order_id: actualId }, action: 'RESUME' }),
     }).catch(err => console.warn('[Central DB] Error resuming order:', err));
 
     const resumedActive: ActiveWalkInOrder = {
-      id: parked.order_id,
-      orderNumber: parked.order_number || activeOrders.length + 1,
-      label: parked.order_label || `Order #${parked.order_number}`,
-      customerId: parked.customer_id,
-      cart: parked.items,
-      customDiscount: parked.customDiscount,
-      customDiscountReason: parked.customDiscountReason,
-      discountAuthorizedBy: parked.discountAuthorizedBy,
-      paymentMode: parked.paymentMode,
-      selectedPaymentMethod: parked.selectedPaymentMethod,
-      cashTendered: parked.cashTendered,
-      singleRef: parked.singleRef,
-      splitCashAmount: parked.splitCashAmount,
-      splitCashTendered: parked.splitCashTendered,
-      splitSecondMethod: parked.splitSecondMethod,
-      splitSecondAmount: parked.splitSecondAmount,
-      splitSecondRef: parked.splitSecondRef,
-      splitThirdMethod: parked.splitThirdMethod,
-      splitThirdAmount: parked.splitThirdAmount,
-      splitThirdRef: parked.splitThirdRef,
-      createdAt: parked.created_at,
+      id: actualId,
+      orderNumber: Number(parked.order_number) || activeOrders.length + 1,
+      label: parked.order_label || (parked as any).label || `Order #${parked.order_number || activeOrders.length + 1}`,
+      customerId: parked.customer_id || 'Walk-in',
+      cart: Array.isArray(parked.items) ? parked.items : [],
+      customDiscount: Number(parked.customDiscount) || Number((parked as any).discount_amount) || 0,
+      customDiscountReason: parked.customDiscountReason || '',
+      discountAuthorizedBy: parked.discountAuthorizedBy || null,
+      paymentMode: parked.paymentMode === 'split' ? 'split' : 'single',
+      selectedPaymentMethod: parked.selectedPaymentMethod || 'Cash',
+      cashTendered: String(parked.cashTendered || ''),
+      singleRef: String(parked.singleRef || ''),
+      splitCashAmount: String(parked.splitCashAmount || ''),
+      splitCashTendered: String(parked.splitCashTendered || ''),
+      splitSecondMethod: parked.splitSecondMethod || 'POS',
+      splitSecondAmount: String(parked.splitSecondAmount || ''),
+      splitSecondRef: String(parked.splitSecondRef || ''),
+      splitThirdMethod: parked.splitThirdMethod || null,
+      splitThirdAmount: String(parked.splitThirdAmount || ''),
+      splitThirdRef: String(parked.splitThirdRef || ''),
+      createdAt: parked.created_at || new Date().toISOString(),
     };
 
     const currentOrder = activeOrders.find(o => o.id === activeOrderId);

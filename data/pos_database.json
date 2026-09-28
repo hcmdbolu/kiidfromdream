@@ -455,5 +455,7 @@
       "notes": "End of afternoon shift cash clearing. Left ₦10,000 float for evening counter.",
       "status": "COMPLETED"
     }
-  ]
+  ],
+  "parkedOrders": [],
+  "voidedOrders": []
 }

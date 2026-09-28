@@ -45,9 +45,15 @@ import { CartItemRow } from './CartItemRow';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
+  openParkedOrdersDirectly?: boolean;
+  onClearOpenParkedOrdersDirectly?: () => void;
 }
 
-export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal }) => {
+export const PosTerminal: React.FC<PosTerminalProps> = ({ 
+  onOpenCustomerModal,
+  openParkedOrdersDirectly,
+  onClearOpenParkedOrdersDirectly,
+}) => {
   const {
     products,
     customers,
@@ -131,6 +137,15 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ onOpenCustomerModal })
   const [isParkedListOpen, setIsParkedListOpen] = useState(false);
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
   const [orderForVoidModal, setOrderForVoidModal] = useState<ActiveWalkInOrder | ParkedOrder | null>(null);
+
+  useEffect(() => {
+    if (openParkedOrdersDirectly) {
+      setIsParkedListOpen(true);
+      if (onClearOpenParkedOrdersDirectly) {
+        onClearOpenParkedOrdersDirectly();
+      }
+    }
+  }, [openParkedOrdersDirectly, onClearOpenParkedOrdersDirectly]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');

@@ -22,6 +22,7 @@ import { StockTransferModal } from './components/inventory/StockTransferModal';
 import { ReceiptBrandingManager } from './components/admin/ReceiptBrandingManager';
 import { SaleTransaction, UserRole } from './types';
 import { PanelLeftOpen } from 'lucide-react';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 function MainApp() {
   const { 
@@ -39,6 +40,7 @@ function MainApp() {
 
   const [currentTab, setCurrentTab] = useState<string>('pos');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [shouldOpenHeldOrders, setShouldOpenHeldOrders] = useState(false);
   
   // Persistent side panel hidden state
   const [sidebarHidden, setSidebarHidden] = useState<boolean>(() => {
@@ -157,7 +159,10 @@ function MainApp() {
         onOpenCycleCount={() => setIsCycleCountOpen(true)}
         onOpenStockTransfer={() => setIsStockTransferOpen(true)}
         onOpenStaffAdmin={() => setIsStaffManagerOpen(true)}
-        onOpenParkedOrders={() => setCurrentTab('pos')}
+        onOpenParkedOrders={() => {
+          setCurrentTab('pos');
+          setShouldOpenHeldOrders(true);
+        }}
         isHidden={sidebarHidden}
         onToggleHide={() => {
           if (window.innerWidth < 768) {
@@ -183,64 +188,72 @@ function MainApp() {
 
         {/* Main Tab Content */}
         <main className="flex-1 overflow-y-auto min-h-0 pb-12">
-          {currentTab === 'pos' && (
-            <PosTerminal
-              onOpenCustomerModal={() => setCurrentTab('customers')}
-            />
-          )}
+          <ErrorBoundary
+            fallbackTitle="View Display Error"
+            fallbackMessage="An unexpected issue occurred while rendering this module. You can return to the POS register safely."
+            onReset={() => setCurrentTab('pos')}
+          >
+            {currentTab === 'pos' && (
+              <PosTerminal
+                onOpenCustomerModal={() => setCurrentTab('customers')}
+                openParkedOrdersDirectly={shouldOpenHeldOrders}
+                onClearOpenParkedOrdersDirectly={() => setShouldOpenHeldOrders(false)}
+              />
+            )}
 
-          {currentTab === 'inventory' && !isCashier && (
-            <InventoryManager
-              onQuickOrderPO={handleQuickReorder}
-            />
-          )}
+            {currentTab === 'inventory' && !isCashier && (
+              <InventoryManager
+                onQuickOrderPO={handleQuickReorder}
+              />
+            )}
 
-          {currentTab === 'sales' && (
-            <SalesHistoryManager
-              onViewReceipt={(tx) => setActiveReceipt(tx)}
-              onOpenRefundForTx={handleOpenRefundForTx}
-            />
-          )}
+            {currentTab === 'sales' && (
+              <SalesHistoryManager
+                onViewReceipt={(tx) => setActiveReceipt(tx)}
+                onOpenRefundForTx={handleOpenRefundForTx}
+              />
+            )}
 
-          {currentTab === 'customers' && !isCashier && (
-            <CustomerManager
-              onSelectCustomerForSale={handleSelectCustomerForSale}
-            />
-          )}
+            {currentTab === 'customers' && !isCashier && (
+              <CustomerManager
+                onSelectCustomerForSale={handleSelectCustomerForSale}
+              />
+            )}
 
-          {currentTab === 'suppliers' && !isCashier && (
-            <SupplierAndPOManager
-              initialTab={prefilledPo.itemSn ? 'orders' : 'orders'}
-              prefilledSupplierId={prefilledPo.supplierId}
-              prefilledItemSn={prefilledPo.itemSn}
-            />
-          )}
+            {currentTab === 'suppliers' && !isCashier && (
+              <SupplierAndPOManager
+                initialTab={prefilledPo.itemSn ? 'orders' : 'orders'}
+                prefilledSupplierId={prefilledPo.supplierId}
+                prefilledItemSn={prefilledPo.itemSn}
+              />
+            )}
 
-          {currentTab === 'reports' && !isCashier && !isSupervisor && (
-            <ReportingDashboard
-              onQuickReorder={handleQuickReorder}
-            />
-          )}
+            {currentTab === 'reports' && !isCashier && !isSupervisor && (
+              <ReportingDashboard
+                onQuickReorder={handleQuickReorder}
+              />
+            )}
 
-          {currentTab === 'audit' && !isCashier && !isSupervisor && (
-            <AuditLogManager />
-          )}
+            {currentTab === 'audit' && !isCashier && !isSupervisor && (
+              <AuditLogManager />
+            )}
 
-          {currentTab === 'reconciliation' && !isCashier && !isSupervisor && (
-            <CashReconciliationManager onOpenPosSetup={() => setCurrentTab('pos_setup')} />
-          )}
+            {currentTab === 'reconciliation' && !isCashier && !isSupervisor && (
+              <CashReconciliationManager onOpenPosSetup={() => setCurrentTab('pos_setup')} />
+            )}
 
-          {currentTab === 'pos_setup' && !isCashier && !isSupervisor && (
-            <PosTerminalSetupManager />
-          )}
+            {currentTab === 'pos_setup' && !isCashier && !isSupervisor && (
+              <PosTerminalSetupManager />
+            )}
 
-          {currentTab === 'receipt_settings' && !isCashier && !isSupervisor && (
-            <ReceiptBrandingManager />
-          )}
+            {currentTab === 'receipt_settings' && !isCashier && !isSupervisor && (
+              <ReceiptBrandingManager />
+            )}
 
-          {currentTab === 'staff' && !isCashier && !isSupervisor && (activeStaff.role === 'Admin' || activeStaff.role === 'Super Admin') && (
-            <StaffAndRolesManager />
-          )}
+            {currentTab === 'staff' && !isCashier && !isSupervisor && (activeStaff.role === 'Admin' || activeStaff.role === 'Super Admin') && (
+              <StaffAndRolesManager />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
 

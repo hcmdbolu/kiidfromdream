@@ -658,19 +658,114 @@ export class PosDatabase {
    * Parked orders
    */
   public upsertParkedOrder(po: any) {
-    const id = po.id || `PARK-${Date.now()}`;
-    po.id = id;
+    if (!po) return;
+    const id = po.order_id || po.id || `ORD-PARK-${Date.now()}`;
+    const createdAt = po.created_at || po.parked_at || new Date().toISOString();
+    const cashierId = po.staff_id || po.cashier_id || '';
+    
+    const normalized = {
+      ...po,
+      order_id: id,
+      order_number: Number(po.order_number) || 1,
+      order_label: po.order_label || po.label || (po.customer_name ? `${po.customer_name} (Held)` : `Held Order #${po.order_number || 1}`),
+      created_at: createdAt,
+      parked_at: po.parked_at || createdAt,
+      park_reason: po.park_reason || po.notes || '',
+      customer_id: po.customer_id || 'Walk-in',
+      customer_name: po.customer_name || 'Walk-in',
+      items: Array.isArray(po.items) ? po.items : [],
+      customDiscount: Number(po.customDiscount || po.discount_amount) || 0,
+      customDiscountReason: po.customDiscountReason || '',
+      discountAuthorizedBy: po.discountAuthorizedBy || null,
+      paymentMode: po.paymentMode === 'split' ? 'split' : 'single',
+      selectedPaymentMethod: po.selectedPaymentMethod || 'Cash',
+      cashTendered: String(po.cashTendered || ''),
+      singleRef: String(po.singleRef || ''),
+      splitCashAmount: String(po.splitCashAmount || ''),
+      splitCashTendered: String(po.splitCashTendered || ''),
+      splitSecondMethod: po.splitSecondMethod || 'POS',
+      splitSecondAmount: String(po.splitSecondAmount || ''),
+      splitSecondRef: String(po.splitSecondRef || ''),
+      splitThirdMethod: po.splitThirdMethod || null,
+      splitThirdAmount: String(po.splitThirdAmount || ''),
+      splitThirdRef: String(po.splitThirdRef || ''),
+      staff_id: cashierId,
+      staff_name: po.staff_name || '',
+      status: po.status || 'PARKED',
+    };
+
     this.db.prepare(`
       INSERT INTO parked_orders (id, created_at, cashier_id, data)
       VALUES (?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET data = excluded.data
-    `).run(id, po.created_at || new Date().toISOString(), po.cashier_id || '', JSON.stringify(po));
+      ON CONFLICT(id) DO UPDATE SET
+        created_at = excluded.created_at,
+        cashier_id = excluded.cashier_id,
+        data = excluded.data
+    `).run(id, createdAt, cashierId, JSON.stringify(normalized));
     this.touchVersion();
   }
 
   public deleteParkedOrder(id: string) {
+    if (!id) return;
     this.db.prepare('DELETE FROM parked_orders WHERE id = ?').run(id);
     this.touchVersion();
+  }
+
+  public syncParkedOrders(orders: any[]) {
+    if (!Array.isArray(orders)) return;
+    const ids = orders.map(o => o.order_id || o.id).filter(Boolean);
+    if (ids.length === 0) {
+      this.db.prepare('DELETE FROM parked_orders').run();
+    } else {
+      const placeholders = ids.map(() => '?').join(',');
+      this.db.prepare(`DELETE FROM parked_orders WHERE id NOT IN (${placeholders})`).run(...ids);
+      for (const po of orders) {
+        this.upsertParkedOrder(po);
+      }
+    }
+    this.touchVersion();
+  }
+
+  public getParkedOrders(): any[] {
+    const rows = this.db.prepare('SELECT data FROM parked_orders ORDER BY created_at DESC').all() as Array<{ data: string }>;
+    return rows.map(r => {
+      try {
+        const po = JSON.parse(r.data);
+        const id = po.order_id || po.id || `ORD-PARK-${Date.now()}`;
+        return {
+          ...po,
+          order_id: id,
+          order_number: Number(po.order_number) || 1,
+          order_label: po.order_label || po.label || (po.customer_name ? `${po.customer_name} (Held)` : `Held Order #${po.order_number || 1}`),
+          created_at: po.created_at || po.parked_at || new Date().toISOString(),
+          parked_at: po.parked_at || po.created_at || new Date().toISOString(),
+          park_reason: po.park_reason || po.notes || '',
+          customer_id: po.customer_id || 'Walk-in',
+          customer_name: po.customer_name || 'Walk-in',
+          items: Array.isArray(po.items) ? po.items : [],
+          customDiscount: Number(po.customDiscount || po.discount_amount) || 0,
+          customDiscountReason: po.customDiscountReason || '',
+          discountAuthorizedBy: po.discountAuthorizedBy || null,
+          paymentMode: po.paymentMode === 'split' ? 'split' : 'single',
+          selectedPaymentMethod: po.selectedPaymentMethod || 'Cash',
+          cashTendered: String(po.cashTendered || ''),
+          singleRef: String(po.singleRef || ''),
+          splitCashAmount: String(po.splitCashAmount || ''),
+          splitCashTendered: String(po.splitCashTendered || ''),
+          splitSecondMethod: po.splitSecondMethod || 'POS',
+          splitSecondAmount: String(po.splitSecondAmount || ''),
+          splitSecondRef: String(po.splitSecondRef || ''),
+          splitThirdMethod: po.splitThirdMethod || null,
+          splitThirdAmount: String(po.splitThirdAmount || ''),
+          splitThirdRef: String(po.splitThirdRef || ''),
+          staff_id: po.staff_id || '',
+          staff_name: po.staff_name || '',
+          status: po.status || 'PARKED',
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
   }
 
   /**
@@ -837,7 +932,7 @@ export class PosDatabase {
       auditLogs: this.getTable('audit_logs'),
       cycleCounts: this.getTable('cycle_counts'),
       stockTransfers: this.getTable('stock_transfers'),
-      parkedOrders: this.getTable('parked_orders'),
+      parkedOrders: this.getParkedOrders(),
       voidedOrders: this.getTable('voided_orders'),
       posTerminals: this.getTable('pos_terminals'),
       cashTransfers: this.getTable('cash_transfers'),
@@ -881,7 +976,7 @@ export class PosDatabase {
         for (const st of snapshot.stockTransfers) this.addStockTransfer(st);
       }
       if (Array.isArray(snapshot.parkedOrders)) {
-        for (const po of snapshot.parkedOrders) this.upsertParkedOrder(po);
+        this.syncParkedOrders(snapshot.parkedOrders);
       }
       if (Array.isArray(snapshot.voidedOrders)) {
         for (const vo of snapshot.voidedOrders) this.addVoidedOrder(vo);
