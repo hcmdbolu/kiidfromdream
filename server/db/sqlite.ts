@@ -192,6 +192,46 @@ export class PosDatabase {
       };
       this.db.prepare('INSERT INTO metadata (key, value) VALUES (?, ?)').run('db_info', JSON.stringify(initialMeta));
     }
+
+    this.ensureSuperAdmin();
+  }
+
+  /**
+   * Ensures the root Super Admin account (Boluwatife) is securely present
+   */
+  private ensureSuperAdmin() {
+    try {
+      const exists = this.db.prepare("SELECT staff_id FROM employees WHERE LOWER(username) = 'boluwatife'").get();
+      if (!exists) {
+        const superAdmin = {
+          staff_id: 'STAFF-SUPER-001',
+          staff_name: 'Boluwatife Abiri (Super Admin)',
+          username: 'Boluwatife',
+          password: 'be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded',
+          phone_number: '+234 800 000 0001',
+          role: 'Super Admin',
+          pin: 'be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded',
+          shift_time: 'Full Day',
+          date_hired: '2023-01-01',
+          status: 'Active',
+        };
+        this.db.prepare(`
+          INSERT INTO employees (staff_id, staff_name, username, role, pin, status, data)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          superAdmin.staff_id,
+          superAdmin.staff_name,
+          superAdmin.username,
+          superAdmin.role,
+          superAdmin.pin,
+          superAdmin.status,
+          JSON.stringify(superAdmin)
+        );
+        console.log('[SQLITE] Super Admin Boluwatife auto-seeded successfully.');
+      }
+    } catch {
+      // Table will be seeded by autoMigrateFromJson if fresh
+    }
   }
 
   /**

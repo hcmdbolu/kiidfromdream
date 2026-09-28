@@ -355,6 +355,18 @@
   ],
   "employees": [
     {
+      "staff_id": "STAFF-SUPER-001",
+      "staff_name": "Boluwatife Abiri (Super Admin)",
+      "username": "Boluwatife",
+      "password": "be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded",
+      "phone_number": "+234 800 000 0001",
+      "role": "Super Admin",
+      "pin": "be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded",
+      "shift_time": "Full Day",
+      "date_hired": "2023-01-01",
+      "status": "Active"
+    },
+    {
       "staff_id": "STAFF-000",
       "staff_name": "Alex Abiri",
       "username": "alex",

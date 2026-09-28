@@ -15,7 +15,9 @@ export type Permission =
   | 'CAN_VIEW_REPORTS'
   | 'CAN_VIEW_AUDIT_LOG'
   | 'CAN_MANAGE_STAFF'
-  | 'CAN_SYSTEM_CONFIG';
+  | 'CAN_SYSTEM_CONFIG'
+  | 'CAN_FACTORY_RESET'
+  | 'CAN_MANAGE_ADMINS';
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   Cashier: [
@@ -59,6 +61,25 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_MANAGE_STAFF',
     'CAN_SYSTEM_CONFIG',
   ],
+  'Super Admin': [
+    'CAN_POS_SALE',
+    'CAN_RECEIVE_GOODS',
+    'CAN_CYCLE_COUNT',
+    'CAN_REFUND',
+    'CAN_VIEW_INVENTORY',
+    'CAN_MANAGE_PRODUCTS',
+    'CAN_APPLY_DISCOUNT',
+    'CAN_CREATE_PO',
+    'CAN_CANCEL_PO',
+    'CAN_TRANSFER_STOCK',
+    'CAN_MANAGE_SUPPLIERS',
+    'CAN_VIEW_REPORTS',
+    'CAN_VIEW_AUDIT_LOG',
+    'CAN_MANAGE_STAFF',
+    'CAN_SYSTEM_CONFIG',
+    'CAN_FACTORY_RESET',
+    'CAN_MANAGE_ADMINS',
+  ],
 };
 
 export const hasRolePermission = (role: UserRole, permission: Permission): boolean => {
@@ -93,7 +114,14 @@ export const ROLE_BADGES: Record<UserRole, { label: string; bg: string; text: st
     bg: 'bg-emerald-500/10',
     text: 'text-emerald-400',
     border: 'border-emerald-500/30',
-    desc: 'Complete control & audit trail',
+    desc: 'System operations & standard administration',
+  },
+  'Super Admin': {
+    label: 'Super Admin',
+    bg: 'bg-gradient-to-r from-violet-500/20 to-indigo-500/20',
+    text: 'text-violet-300',
+    border: 'border-violet-500/40',
+    desc: 'Root authority & exclusive factory reset',
   },
 };
 

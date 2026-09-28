@@ -193,7 +193,7 @@ export interface PurchaseOrder {
   notes?: string;
 }
 
-export type UserRole = 'Cashier' | 'Supervisor' | 'Manager' | 'Admin';
+export type UserRole = 'Cashier' | 'Supervisor' | 'Manager' | 'Admin' | 'Super Admin';
 
 export interface Employee {
   staff_id: string; // STAFF-001

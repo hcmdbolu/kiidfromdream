@@ -3285,43 +3285,56 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const closeFactoryResetModal = () => setIsFactoryResetModalOpen(false);
 
   const factoryDataReset = async (adminPin: string): Promise<{ success: boolean; error?: string }> => {
-    // 1. Strictly Admin Role Restriction
-    if (activeStaff.role !== 'Admin') {
+    // 1. Strictly Super Admin Role Restriction
+    if (activeStaff.role !== 'Super Admin') {
       addAuditLogInternal({
         category: 'Security',
         action: 'PERMISSION_DENIED',
-        details: `Access Denied: Unauthorized attempt by ${activeStaff.staff_name} (${activeStaff.role}) to trigger Factory Data Reset. Restricted to System Admin only.`,
+        details: `Access Denied: Unauthorized attempt by ${activeStaff.staff_name} (${activeStaff.role}) to trigger Factory Data Reset. Restricted to Super Admin only.`,
         severity: 'ALERT',
       });
       return { 
         success: false, 
-        error: 'Access Denied: Factory Data Reset is strictly restricted to System Administrators only.' 
+        error: 'Access Denied: Factory Data Reset is strictly restricted to Super Admin only.' 
       };
     }
 
-    // 2. Validate Admin PIN
+    // 2. Validate Super Admin PIN / Password (Boluwatife)
     const cleanPin = adminPin.trim();
-    const adminEmployees = employees.filter(e => e.role === 'Admin');
-    const matchedAdmin = adminEmployees.find(
-      e => verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)) || verifyPin(cleanPin, '9999') || verifyPin(cleanPin, 'admin123')
-    ) || (verifyPin(cleanPin, activeStaff.pin) ? activeStaff : null);
+    const superAdminEmployees = employees.filter(e => e.role === 'Super Admin');
+    const matchedSuperAdmin = superAdminEmployees.find(
+      e => verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password))
+    ) || (activeStaff.role === 'Super Admin' && (verifyPin(cleanPin, activeStaff.pin) || (activeStaff.password && verifyPin(cleanPin, activeStaff.password))) ? activeStaff : null);
 
-    if (!matchedAdmin) {
+    if (!matchedSuperAdmin) {
       addAuditLogInternal({
         category: 'Security',
         action: 'LOGIN_FAILED',
-        details: `Failed Factory Data Reset attempt: Incorrect Admin PIN entered by ${activeStaff.staff_name}.`,
+        details: `Failed Factory Data Reset attempt: Incorrect Super Admin PIN/Password entered by ${activeStaff.staff_name}.`,
         severity: 'ALERT',
       });
       return { 
         success: false, 
-        error: 'Incorrect 4-digit Admin PIN. Factory Data Reset was aborted.' 
+        error: 'Incorrect Super Admin password or PIN. Factory Data Reset was aborted.' 
       };
     }
 
     try {
-      // 3. Preserve Core Admin Credentials & POS Terminal Settings
-      const preservedAdminEmployees = adminEmployees.length > 0 ? adminEmployees : [
+      // 3. Preserve Core Super Admin & Admin Credentials & POS Terminal Settings
+      const preservedAdminEmployees = employees.filter(e => e.role === 'Super Admin' || e.role === 'Admin');
+      const finalPreservedEmployees = preservedAdminEmployees.length > 0 ? preservedAdminEmployees : [
+        {
+          staff_id: 'STAFF-SUPER-001',
+          staff_name: 'Boluwatife Abiri (Super Admin)',
+          username: 'Boluwatife',
+          password: 'be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded',
+          phone_number: '+234 800 000 0001',
+          role: 'Super Admin' as UserRole,
+          pin: 'be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded',
+          shift_time: 'Full Day' as const,
+          date_hired: '2023-01-01',
+          status: 'Active' as const,
+        },
         {
           staff_id: 'STAFF-000',
           staff_name: 'Alex Abiri (Admin)',
@@ -3336,7 +3349,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       ];
 
-      const currentAdminId = activeStaff.role === 'Admin' ? activeStaff.staff_id : preservedAdminEmployees[0].staff_id;
+      const currentAdminId = activeStaff.staff_id || 'STAFF-SUPER-001';
       const preservedPosTerminals = [...posTerminals];
 
       // 4. Wipe all transactional, inventory, customer, and operational data arrays

@@ -203,7 +203,8 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
         e => (e.staff_id.toLowerCase() === cleanId ||
               e.staff_name.toLowerCase() === cleanId ||
               (e.username && e.username.toLowerCase() === cleanId) ||
-              (cleanId === 'admin' && e.role === 'Admin')) &&
+              (cleanId === 'admin' && (e.role === 'Admin' || e.role === 'Super Admin')) ||
+              (cleanId === 'boluwatife' && e.role === 'Super Admin')) &&
              (verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password)))
       );
     } else if (cleanPin) {

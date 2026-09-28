@@ -52,3 +52,28 @@
 .animate-shake {
   animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
+
+/* Custom sleek transparent-on-hover scrollbar for POS sidebar */
+.pos-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+.pos-sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pos-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pos-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+.pos-sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+

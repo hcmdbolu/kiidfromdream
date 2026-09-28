@@ -28,48 +28,43 @@ export const ProductCard: React.FC<ProductCardProps> = memo(({
   const isExpiringSoon = diffDays >= 0 && diffDays <= 3;
   const isExpired = diffDays < 0;
 
-  const profitMargin = product.item_cost > 0
-    ? Math.round(((product.selling_price - product.item_cost) / product.item_cost) * 100)
-    : 0;
-
   return (
     <div
-      className={`bg-white rounded-xl border transition-all duration-150 flex flex-col justify-between overflow-hidden relative group ${
+      className={`bg-white rounded-xl border transition-all duration-150 flex flex-col overflow-hidden hover:shadow-md ${
         isOutOfStock
-          ? 'opacity-60 border-slate-200 bg-slate-50'
-          : 'border-slate-200 hover:border-emerald-500 hover:shadow-md'
+          ? 'border-slate-200 opacity-60'
+          : inCart
+          ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
+          : 'border-slate-200 hover:border-slate-300'
       }`}
     >
-      {/* Top Image & Badges */}
-      <div className="relative h-32 w-full bg-slate-100 overflow-hidden">
+      {/* Product Image & Badges */}
+      <div className="relative h-32 w-full bg-slate-100 overflow-hidden shrink-0">
         <img
-          src={product.item_picture}
+          src={product.item_picture || '/placeholder-product.svg'}
           alt={product.item_name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src =
-              'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80';
-          }}
+          className="w-full h-full object-cover"
+          loading="lazy"
         />
-        {/* SN Tag */}
-        <span className="absolute top-2 left-2 bg-slate-900/80 backdrop-blur-sm text-white text-[10px] font-mono px-2 py-0.5 rounded font-semibold">
-          {product.item_sn}
-        </span>
 
-        {/* Expiry Warning */}
-        {isExpiringSoon && (
-          <span className="absolute top-2 right-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm animate-pulse">
-            Exp in {diffDays}d
+        {/* Serial Number & Expiry Badge */}
+        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start">
+          <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-slate-900/70 text-white backdrop-blur-xs">
+            {product.item_sn}
           </span>
-        )}
-        {isExpired && (
-          <span className="absolute top-2 right-2 bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm">
-            EXPIRED
-          </span>
-        )}
+          {isExpired ? (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-600 text-white shadow-xs">
+              EXPIRED
+            </span>
+          ) : isExpiringSoon ? (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500 text-white shadow-xs">
+              EXP SOON
+            </span>
+          ) : null}
+        </div>
 
         {/* Stock pill */}
-        <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
+        <div className="absolute bottom-2 left-2 flex items-center">
           <span
             className={`text-[11px] font-bold px-2 py-0.5 rounded backdrop-blur-md shadow-sm ${
               isOutOfStock
@@ -80,10 +75,6 @@ export const ProductCard: React.FC<ProductCardProps> = memo(({
             }`}
           >
             {isOutOfStock ? 'OUT OF STOCK' : `${product.quantity} ${product.product_measure_unit} LEFT`}
-          </span>
-
-          <span className="text-[10px] font-semibold bg-white/90 text-slate-800 px-1.5 py-0.5 rounded shadow-sm">
-            {profitMargin}% profit
           </span>
         </div>
       </div>

@@ -160,8 +160,9 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
   // RBAC Matrix selected role inspection
   const [inspectedRole, setInspectedRole] = useState<UserRole>('Cashier');
 
-  // Security guard: Admin access check
-  const isAdmin = activeStaff.role === 'Admin';
+  // Security guard: Admin and Super Admin access checks
+  const isAdmin = activeStaff.role === 'Admin' || activeStaff.role === 'Super Admin';
+  const isSuperAdmin = activeStaff.role === 'Super Admin';
 
   // Toggle PIN visibility
   const togglePinReveal = (staffId: string) => {
@@ -239,11 +240,20 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
       return;
     }
 
-    // Safety: Cannot demote the last Admin
+    // Safety: Protect Super Admin and Admin hierarchy
     if (isEditing && editingStaffId) {
       const targetEmp = employees.find(e => e.staff_id === editingStaffId);
-      const totalAdmins = employees.filter(e => e.role === 'Admin').length;
-      if (targetEmp?.role === 'Admin' && formData.role !== 'Admin' && totalAdmins <= 1) {
+      if (targetEmp?.role === 'Super Admin' && !isSuperAdmin) {
+        setFormError('Security violation: Only Super Admin can modify the Super Admin account.');
+        return;
+      }
+      if (formData.role === 'Super Admin' && !isSuperAdmin) {
+        setFormError('Security violation: Only Super Admin can assign the Super Admin role.');
+        return;
+      }
+
+      const totalAdmins = employees.filter(e => e.role === 'Admin' || e.role === 'Super Admin').length;
+      if (targetEmp?.role === 'Admin' && formData.role !== 'Admin' && formData.role !== 'Super Admin' && totalAdmins <= 1) {
         setFormError('Security violation: Cannot demote the system\'s only Administrator.');
         return;
       }
@@ -288,13 +298,18 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
 
   // Toggle Staff Status (Active <-> Inactive)
   const handleToggleStatus = (emp: Employee) => {
+    if (emp.role === 'Super Admin' || emp.username?.toLowerCase() === 'boluwatife') {
+      alert('Security Protection: The Super Admin account (Boluwatife) cannot be suspended.');
+      return;
+    }
+
     if (emp.staff_id === activeStaff.staff_id) {
       alert('Security Protection: You cannot suspend your own currently active operator account.');
       return;
     }
 
     if (emp.role === 'Admin' && emp.status === 'Active') {
-      const activeAdmins = employees.filter(e => e.role === 'Admin' && e.status === 'Active');
+      const activeAdmins = employees.filter(e => (e.role === 'Admin' || e.role === 'Super Admin') && e.status === 'Active');
       if (activeAdmins.length <= 1) {
         alert('Security Protection: Cannot suspend the only active Administrator account.');
         return;
@@ -312,13 +327,18 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
 
   // Delete staff member safely
   const handleDeleteStaff = (emp: Employee) => {
+    if (emp.role === 'Super Admin' || emp.username?.toLowerCase() === 'boluwatife') {
+      alert('Security Protection: The Super Admin account (Boluwatife) cannot be deleted.');
+      return;
+    }
+
     if (emp.staff_id === activeStaff.staff_id) {
       alert('Security Protection: Cannot delete your own active administrator account.');
       return;
     }
 
     if (emp.role === 'Admin') {
-      const totalAdmins = employees.filter(e => e.role === 'Admin');
+      const totalAdmins = employees.filter(e => e.role === 'Admin' || e.role === 'Super Admin');
       if (totalAdmins.length <= 1) {
         alert('Security Protection: Cannot delete the only Administrator account in the system.');
         return;
@@ -423,7 +443,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
 
   // Role metrics
   const roleCounts = useMemo(() => {
-    const counts = { Admin: 0, Manager: 0, Supervisor: 0, Cashier: 0 };
+    const counts: Record<UserRole, number> = { 'Super Admin': 0, Admin: 0, Manager: 0, Supervisor: 0, Cashier: 0 };
     employees.forEach(e => {
       if (counts[e.role] !== undefined) counts[e.role]++;
     });
@@ -561,12 +581,12 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
               <span>Add Staff Member</span>
             </button>
 
-            {isAdmin && (
+            {isSuperAdmin && (
               <button
                 type="button"
                 onClick={openFactoryResetModal}
                 className="px-3.5 py-2 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
-                title="Factory Data Reset - Wipe all data for live production"
+                title="Factory Data Reset - Wipe all data for live production (Super Admin Only)"
               >
                 <Flame className="w-3.5 h-3.5 text-rose-600" />
                 <span>Factory Data Reset</span>
@@ -1011,8 +1031,8 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
       {subTab === 'roles' && (
         <div className="space-y-6">
           {/* Role Cards Overview */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {(['Cashier', 'Supervisor', 'Manager', 'Admin'] as UserRole[]).map(r => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {(['Cashier', 'Supervisor', 'Manager', 'Admin', 'Super Admin'] as UserRole[]).map(r => {
               const b = ROLE_BADGES[r];
               const permCount = ROLE_PERMISSIONS[r]?.length || 0;
               const assignedCount = employees.filter(e => e.role === r).length;
@@ -1041,7 +1061,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                   <p className="text-xs text-slate-500 mt-1 leading-relaxed">{b.desc}</p>
 
                   <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                    <span className="text-slate-500 font-mono">{permCount} of 15 Capabilities</span>
+                    <span className="text-slate-500 font-mono">{permCount} Capabilities</span>
                     <span className="text-emerald-700 font-semibold flex items-center space-x-1">
                       <span>Inspect</span>
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -1078,11 +1098,12 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4 w-2/5">Permission / Operational Capability</th>
-                    <th className="py-3 px-3 text-center w-[15%]">Cashier</th>
-                    <th className="py-3 px-3 text-center w-[15%]">Supervisor</th>
-                    <th className="py-3 px-3 text-center w-[15%]">Manager</th>
-                    <th className="py-3 px-3 text-center w-[15%]">Admin</th>
+                    <th className="py-3 px-4 w-1/3">Permission / Operational Capability</th>
+                    <th className="py-3 px-2 text-center">Cashier</th>
+                    <th className="py-3 px-2 text-center">Supervisor</th>
+                    <th className="py-3 px-2 text-center">Manager</th>
+                    <th className="py-3 px-2 text-center">Admin</th>
+                    <th className="py-3 px-2 text-center text-violet-700 font-extrabold">Super Admin</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1090,7 +1111,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                     <React.Fragment key={group.category}>
                       {/* Category Header */}
                       <tr className="bg-slate-50/50">
-                        <td colSpan={5} className="py-2.5 px-4 font-bold text-slate-800 text-[11px] uppercase tracking-wider bg-slate-50">
+                        <td colSpan={6} className="py-2.5 px-4 font-bold text-slate-800 text-[11px] uppercase tracking-wider bg-slate-50">
                           {group.category}
                           <span className="text-[10px] font-normal normal-case text-slate-400 ml-2">
                             — {group.description}
@@ -1107,10 +1128,10 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                               <div className="text-[11px] text-slate-500">{perm.desc}</div>
                             </td>
 
-                            {(['Cashier', 'Supervisor', 'Manager', 'Admin'] as UserRole[]).map(role => {
-                              const hasPerm = ROLE_PERMISSIONS[role].includes(perm.key);
+                            {(['Cashier', 'Supervisor', 'Manager', 'Admin', 'Super Admin'] as UserRole[]).map(role => {
+                              const hasPerm = ROLE_PERMISSIONS[role]?.includes(perm.key);
                               return (
-                                <td key={role} className="py-2.5 px-3 text-center">
+                                <td key={role} className="py-2.5 px-2 text-center">
                                   {hasPerm ? (
                                     <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 shadow-2xs">
                                       <Check className="w-3.5 h-3.5 stroke-[3]" />
@@ -1444,12 +1465,13 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                 </div>
               </div>
 
-              {/* Reset Trigger Button - Strictly restricted to Admin */}
-              {isAdmin && (
+              {/* Reset Trigger Button - Strictly restricted to Super Admin */}
+              {isSuperAdmin && (
                 <button
                   type="button"
                   onClick={openFactoryResetModal}
                   className="px-5 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-xl transition-all shadow-md shadow-rose-900/20 hover:shadow-lg hover:shadow-rose-900/30 flex items-center space-x-2 shrink-0 cursor-pointer self-start sm:self-center"
+                  title="Super Admin Only: Factory Data Reset"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Factory Data Reset</span>
@@ -1617,19 +1639,26 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
                 <label className="block text-[11px] font-bold text-slate-700 uppercase mb-2">
                   Assign Security Role & Privileges
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(['Cashier', 'Supervisor', 'Manager', 'Admin'] as UserRole[]).map(r => {
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {(['Cashier', 'Supervisor', 'Manager', 'Admin', 'Super Admin'] as UserRole[]).map(r => {
                     const isSelected = formData.role === r;
                     const b = ROLE_BADGES[r];
+                    const isSuperRoleDisabled = r === 'Super Admin' && !isSuperAdmin;
                     return (
                       <div
                         key={r}
-                        onClick={() => setFormData(prev => ({ ...prev, role: r }))}
-                        className={`p-2.5 rounded-xl border text-center cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300'
+                        onClick={() => {
+                          if (isSuperRoleDisabled) return;
+                          setFormData(prev => ({ ...prev, role: r }));
+                        }}
+                        className={`p-2.5 rounded-xl border text-center transition-all ${
+                          isSuperRoleDisabled
+                            ? 'opacity-40 bg-slate-100 border-slate-200 cursor-not-allowed text-slate-400'
+                            : isSelected
+                            ? 'bg-slate-900 text-white border-slate-900 shadow-sm cursor-pointer'
+                            : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300 cursor-pointer'
                         }`}
+                        title={isSuperRoleDisabled ? 'Only Super Admin can assign the Super Admin role' : undefined}
                       >
                         <div className="text-xs font-bold">{r}</div>
                         <div className={`text-[10px] mt-0.5 ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
