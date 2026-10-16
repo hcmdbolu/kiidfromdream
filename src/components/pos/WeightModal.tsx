@@ -96,7 +96,7 @@ export const WeightModal: React.FC<WeightModalProps> = ({
         {/* Content Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           
-          {/* Fish Item Info */}
+          {/* Item Info */}
           <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
             <div>
               <div className="font-bold text-slate-900 text-sm">{product.item_name}</div>

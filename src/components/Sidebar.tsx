@@ -1,7 +1,7 @@
 import React from 'react';
 import { usePos } from '../context/PosContext';
 import { 
-  Fish, 
+  Store, 
   ShoppingCart, 
   Package, 
   Users, 
@@ -26,7 +26,8 @@ import {
   ChevronRight,
   Banknote,
   CreditCard,
-  Printer
+  Printer,
+  FileSpreadsheet
 } from 'lucide-react';
 import { ROLE_BADGES } from '../utils/rbac';
 
@@ -66,11 +67,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     parkedOrders,
     posTerminals,
     cashTransfers,
+    cycleCounts,
     openLoginModal,
     lockTerminal,
     logout,
+    openBackupModal,
     exportBackupData,
     openFactoryResetModal,
+    openMigrationModal,
     syncStatus,
     serverVersion,
     lastSyncTime,
@@ -85,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Complete catalog of system modules organized by dashboard section:
   // Strict role permissions enforced:
   // - Cashier: POS sales, sales history
-  // - Supervisor: + Inventory stock, receiving goods & purchase orders
+  // - Supervisor: + Inventory stock, receiving goods & purchase orders, cycle counts
   // - Manager: + Executive Reports & P&L, Audit Trail, Cash Reconciliation & POS Setup
   // - Admin: + Staff Admin & System Backup
   // - Super Admin: Full Root control & Exclusive Factory Data Reset
@@ -115,11 +119,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { 
           id: 'inventory', 
-          label: 'Inventory & Cold Room', 
+          label: 'Inventory', 
           icon: Package, 
           badge: lowStockCount > 0 ? `${lowStockCount} low` : null, 
           badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
           allowed: activeStaff.role !== 'Cashier',
+        },
+        { 
+          id: 'cycle_count', 
+          label: 'Cycle Count Audit', 
+          icon: ClipboardCheck, 
+          badge: (cycleCounts || []).length > 0 ? `${(cycleCounts || []).length}` : null, 
+          badgeColor: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+          allowed: ['Supervisor', 'Manager', 'Admin', 'Super Admin'].includes(activeStaff.role),
         },
         { 
           id: 'customers', 
@@ -141,19 +153,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       title: 'Treasury & Intelligence',
       items: [
         { 
-          id: 'reconciliation', 
-          label: 'Cash Drawer & Bank', 
+          id: 'treasury', 
+          label: 'Cash Drawer & Treasury', 
           icon: Banknote, 
-          badge: cashTransfers.length > 0 ? `${cashTransfers.length} dep` : null,
+          badge: cashTransfers.length > 0 ? `${cashTransfers.length} xfers` : `${posTerminals.length} mapped`,
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
-          allowed: isManagerOrAbove,
-        },
-        { 
-          id: 'pos_setup', 
-          label: 'POS & Bank Setup', 
-          icon: CreditCard, 
-          badge: `${posTerminals.length} mapped`,
-          badgeColor: 'bg-purple-500/20 text-purple-300 border border-purple-500/30',
           allowed: isManagerOrAbove,
         },
         { 
@@ -229,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               title="KIIDFROMDREAM POS"
             >
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform shrink-0">
-                <Fish className="w-6 h-6 stroke-[2.5]" />
+                <Store className="w-6 h-6 stroke-[2.5]" />
               </div>
               {!isHidden && (
                 <div className="min-w-0">
@@ -377,7 +381,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {visibleItems.map(item => {
                   const Icon = item.icon;
-                  const isActive = currentTab === item.id;
+                  const isActive = currentTab === item.id || (item.id === 'treasury' && (currentTab === 'reconciliation' || currentTab === 'pos_setup'));
 
                   return (
                     <button
@@ -433,7 +437,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {['Supervisor', 'Manager', 'Admin', 'Super Admin'].includes(activeStaff.role) && (
                 <button
                   type="button"
-                  onClick={onOpenCycleCount}
+                  onClick={() => handleSelectTab('cycle_count')}
                   className={`w-full flex items-center ${
                     isHidden ? 'justify-center p-2' : 'justify-between px-3 py-2'
                   } rounded-xl text-xs font-medium text-slate-300 hover:text-amber-300 hover:bg-amber-950/30 border border-slate-800 hover:border-amber-700/50 transition-all cursor-pointer group`}
@@ -483,21 +487,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
 
-              {/* Quick Cash-to-Bank Transfer - Manager, Admin & Super Admin */}
+              {/* Quick Cash-to-Bank Transfer / Treasury - Manager, Admin & Super Admin */}
               {isManagerOrAbove && (
                 <button
                   type="button"
-                  onClick={() => handleSelectTab('reconciliation')}
+                  onClick={() => handleSelectTab('treasury')}
                   className={`w-full flex items-center ${
                     isHidden ? 'justify-center p-2' : 'justify-between px-3 py-2'
                   } rounded-xl text-xs font-medium text-slate-300 hover:text-emerald-300 hover:bg-emerald-950/30 border border-slate-800 hover:border-emerald-700/50 transition-all cursor-pointer group`}
-                  title="Cash-to-Bank Transfer"
+                  title="Cash Drawer & Treasury / Bank Management"
                 >
                   <div className={`flex items-center ${isHidden ? 'justify-center' : 'space-x-2.5 min-w-0'}`}>
                     <Banknote className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform shrink-0" />
-                    {!isHidden && <span className="truncate">Cash-to-Bank Transfer</span>}
+                    {!isHidden && <span className="truncate">Cash & Bank Treasury</span>}
                   </div>
-                  {!isHidden && <span className="text-[10px] text-emerald-400/80 font-mono">Drawer</span>}
+                  {!isHidden && <span className="text-[10px] text-emerald-400/80 font-mono">Treasury</span>}
                 </button>
               )}
 
@@ -519,21 +523,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </button>
               )}
 
-              {/* Database Backup Export - Admin & Super Admin Only */}
-              {isAdminOrSuper && (
+              {/* Database Backup & Restore - Accessible to All Staff Members */}
+              <button
+                type="button"
+                onClick={openBackupModal}
+                className={`w-full flex items-center ${
+                  isHidden ? 'justify-center p-2' : 'justify-between px-3 py-2'
+                } rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800 transition-all cursor-pointer group`}
+                title="Backup & Restore Data (Accessible to all staff)"
+              >
+                <div className={`flex items-center ${isHidden ? 'justify-center' : 'space-x-2.5 min-w-0'}`}>
+                  <Database className="w-3.5 h-3.5 text-indigo-400 group-hover:text-indigo-300 transition-colors shrink-0" />
+                  {!isHidden && <span className="truncate">Backup & Restore Data</span>}
+                </div>
+                {!isHidden && <span className="text-[10px] text-indigo-400/80 font-mono">All Staff</span>}
+              </button>
+
+              {/* Legacy Data Migration / Third-Party Import - Manager & Admin */}
+              {isManagerOrAbove && (
                 <button
                   type="button"
-                  onClick={exportBackupData}
+                  onClick={openMigrationModal}
                   className={`w-full flex items-center ${
                     isHidden ? 'justify-center p-2' : 'justify-between px-3 py-2'
-                  } rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800 transition-all cursor-pointer group`}
-                  title="Export JSON Backup"
+                  } rounded-xl text-xs font-medium text-indigo-300 hover:text-white hover:bg-indigo-950/40 border border-slate-800 hover:border-indigo-700/50 transition-all cursor-pointer group`}
+                  title="Legacy Data Migration & Third-Party Sales Import"
                 >
                   <div className={`flex items-center ${isHidden ? 'justify-center' : 'space-x-2.5 min-w-0'}`}>
-                    <Download className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 transition-colors shrink-0" />
-                    {!isHidden && <span className="truncate">Export JSON Backup</span>}
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400 group-hover:scale-110 transition-transform shrink-0" />
+                    {!isHidden && <span className="truncate">Data Migration / Import</span>}
                   </div>
-                  {!isHidden && <span className="text-[10px] text-slate-500 font-mono">Admin</span>}
+                  {!isHidden && <span className="text-[10px] text-indigo-400/80 font-mono">Legacy</span>}
                 </button>
               )}
 

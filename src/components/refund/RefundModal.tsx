@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
-import { SaleTransaction } from '../../types';
+import { SaleTransaction, RefundRecord } from '../../types';
+import { verifyPin } from '../../utils/security';
+import { RefundVoucherModal } from './RefundVoucherModal';
 import { 
   RotateCcw, 
   X, 
@@ -15,7 +17,9 @@ import {
   Package,
   Layers,
   ShieldCheck,
-  CheckCheck
+  CheckCheck,
+  Printer,
+  Split
 } from 'lucide-react';
 
 interface RefundModalProps {
@@ -44,8 +48,11 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [completedRefundRecord, setCompletedRefundRecord] = useState<RefundRecord | null>(null);
+  const [disbursementChannel, setDisbursementChannel] = useState<'ORIGINAL_CHANNEL' | 'STORE_VOUCHER' | 'BANK_REVERSAL' | 'CASH_OVERRIDE'>('ORIGINAL_CHANNEL');
+  const [disbursementReference, setDisbursementReference] = useState<string>('');
 
-  const isManagerOrAdmin = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
+  const isManagerOrAdmin = ['Manager', 'Admin', 'Super Admin', 'Supervisor'].includes(activeStaff.role);
 
   // Current transaction
   const currentTx = useMemo(() => {
@@ -73,7 +80,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
     return getTransactionRefundSummary(currentTx.transaction_id);
   }, [currentTx, getTransactionRefundSummary]);
 
-  // Reset/sync quantities whenever selected transaction changes
+  // Reset/sync quantities and default disbursement mode whenever selected transaction changes
   useEffect(() => {
     if (currentTx) {
       const initialQtys: Record<string, number> = {};
@@ -86,6 +93,14 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
       setItemRefundQuantities(initialQtys);
       setError(null);
       setSuccess(null);
+
+      // Default disbursement channel: Cash -> Cash; Non-cash (POS/Bank) -> Store Voucher
+      if (currentTx.payment_method === 'Cash') {
+        setDisbursementChannel('ORIGINAL_CHANNEL');
+      } else {
+        setDisbursementChannel('STORE_VOUCHER');
+      }
+      setDisbursementReference('');
     }
   }, [selectedTxId, currentTx, getRefundableItemsForTransaction]);
 
@@ -167,19 +182,23 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
     setItemRefundQuantities(prev => ({ ...prev, [itemSn]: maxQty }));
   };
 
-  // Manager or Admin PIN Authorization
+  // Manager, Supervisor, or Admin PIN/Password Authorization
   const handleAuthorizePin = () => {
-    if (managerPin.length !== 4) {
-      setError('Please enter a 4-digit Manager or Admin PIN.');
+    const cleanPin = managerPin.trim();
+    if (!cleanPin) {
+      setError('Please enter Manager, Supervisor, or Admin PIN/Password.');
       return;
     }
-    const staff = employees.find(e => e.pin === managerPin.trim());
+    const staff = employees.find(e => 
+      verifyPin(cleanPin, e.pin) || (e.password && verifyPin(cleanPin, e.password))
+    );
     if (!staff) {
-      setError('Invalid 4-digit PIN entered.');
+      setError('Invalid PIN or password entered.');
       return;
     }
-    if (staff.role !== 'Manager' && staff.role !== 'Admin') {
-      setError(`Access Denied: ${staff.role} ${staff.staff_name} cannot authorize customer returns. Only a Manager (Chidinma: 4444) or Admin (Alex: 9999) can authorize.`);
+    const allowedRoles = ['Manager', 'Admin', 'Super Admin', 'Supervisor'];
+    if (!allowedRoles.includes(staff.role)) {
+      setError(`Access Denied: ${staff.role} ${staff.staff_name} cannot authorize customer returns. Only a Manager, Supervisor, or Admin can authorize.`);
       return;
     }
     setAuthorizedBy(staff.staff_id);
@@ -202,7 +221,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
       return;
     }
 
-    // Role security check: Strictly Manager and Admin Only
+    // Role security check: Strictly Manager, Supervisor, and Admin Only
     if (!isManagerOrAdmin && !authorizedBy) {
       setError('Access Denied: Customer refunds are strictly restricted to Manager and Admin accounts.');
       return;
@@ -232,6 +251,11 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
       items: itemsToRefund,
       reason: effectiveReason,
       authorizedByStaffId: authorizedBy || undefined,
+      disbursementChannel,
+      disbursementReference: disbursementReference.trim() || undefined,
+      cashierStaffId: currentTx.staff_id,
+      bankAccountId: currentTx.bank_account_id,
+      posTerminalId: currentTx.pos_terminal_id,
     });
 
     setIsSubmitting(false);
@@ -239,21 +263,29 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
     if (!res.success) {
       setError(res.error || 'Failed to process refund');
     } else {
-      const isNowFullyRefunded = res.refundRecord?.is_full_refund;
-      setSuccess(
-        isNowFullyRefunded 
-          ? `Full refund of ₦${res.refundRecord?.refund_amount.toLocaleString()} completed! Transaction marked as Fully Refunded, inventory restocked, and audit ledger updated.`
-          : `Partial refund of ₦${res.refundRecord?.refund_amount.toLocaleString()} completed! Transaction marked as Partially Refunded, inventory restocked, and audit ledger updated.`
-      );
-      setTimeout(() => {
-        onClose();
-      }, 2000);
+      if (res.refundRecord) {
+        setCompletedRefundRecord(res.refundRecord);
+      } else {
+        setSuccess('Refund processed successfully! Transaction status updated, inventory restocked, and audit ledger updated.');
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      }
     }
   };
 
   // Payment mapping details of the original transaction
   const paymentDetails = useMemo(() => {
     if (!currentTx) return null;
+    if (currentTx.payment_splits && currentTx.payment_splits.length > 0) {
+      const splitDescriptions = currentTx.payment_splits.map(s => `${s.method}: ₦${s.amount.toLocaleString()}`).join(', ');
+      return {
+        type: 'Split',
+        label: `Split Payment (${splitDescriptions}) - Proportionately Debited`,
+        icon: Split,
+        color: 'text-amber-700 bg-amber-50 border-amber-200',
+      };
+    }
     if (currentTx.payment_method === 'Cash') {
       const cashier = employees.find(e => e.staff_id === currentTx.staff_id);
       return {
@@ -287,6 +319,15 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
     };
   }, [currentTx, employees]);
 
+  if (completedRefundRecord) {
+    return (
+      <RefundVoucherModal
+        refund={completedRefundRecord}
+        onClose={onClose}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 my-6 flex flex-col max-h-[92vh]">
@@ -305,7 +346,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                 </span>
               </div>
               <p className="text-[11px] text-rose-200/80 mt-0.5">
-                Restores fish cold-room inventory, syncs cash/bank balances, and logs to cryptographic ledger
+                Restores item inventory, syncs cash/bank balances, and logs to cryptographic ledger
               </p>
             </div>
           </div>
@@ -405,12 +446,95 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                   </div>
                 </div>
 
-                {paymentDetails && (
-                  <div className="text-[10px] text-slate-500 bg-white p-2 rounded-lg border border-slate-200/80 flex items-center justify-between">
-                    <span className="text-slate-400">Refund Deduction Target:</span>
-                    <span className="font-bold text-slate-800 flex items-center space-x-1">
-                      <span>{paymentDetails.label}</span>
-                    </span>
+                {/* Disbursement Channel Selector for Non-Cash Transactions */}
+                {currentTx.payment_method !== 'Cash' && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Refund Disbursement Channel</span>
+                      </span>
+                      <span className="text-[10px] text-amber-700 bg-amber-100 font-semibold px-2 py-0.5 rounded-full border border-amber-300">
+                        Original: {currentTx.payment_method}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDisbursementChannel('STORE_VOUCHER')}
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          disbursementChannel === 'STORE_VOUCHER'
+                            ? 'bg-blue-50/80 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-900">Store Voucher</span>
+                          <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">Recommended</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">
+                          Issue printable voucher. Zero drawer float impact.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDisbursementChannel('BANK_REVERSAL')}
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          disbursementChannel === 'BANK_REVERSAL'
+                            ? 'bg-indigo-50/80 border-indigo-500 shadow-xs ring-1 ring-indigo-500'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-900">Bank Reversal</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">
+                          Disburse via corporate bank transfer. Drawer untouched.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setDisbursementChannel('CASH_OVERRIDE')}
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all ${
+                          disbursementChannel === 'CASH_OVERRIDE'
+                            ? 'bg-amber-50/80 border-amber-500 shadow-xs ring-1 ring-amber-500'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-900">Cash Override</span>
+                          <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">Alert</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight">
+                          Pay cash from drawer. Deducts cashier float.
+                        </p>
+                      </button>
+                    </div>
+
+                    {disbursementChannel === 'BANK_REVERSAL' && (
+                      <div className="pt-1">
+                        <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                          Outward Bank Transfer Reference / Session ID <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={disbursementReference}
+                          onChange={(e) => setDisbursementReference(e.target.value)}
+                          placeholder="e.g. TRF-REV-90281203"
+                          className="w-full text-xs px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    )}
+
+                    {disbursementChannel === 'CASH_OVERRIDE' && (
+                      <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-800 flex items-center space-x-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        <span>Warning: Paying physical cash for a card/transfer sale will deduct from Cashier float and generate an audit security log.</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -467,7 +591,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
                       <tr>
-                        <th className="py-2.5 px-3">Fish Item</th>
+                        <th className="py-2.5 px-3">Item / SKU</th>
                         <th className="py-2.5 px-3 text-right">Sold Qty</th>
                         <th className="py-2.5 px-3 text-right">Returnable</th>
                         <th className="py-2.5 px-3 text-center w-36">Return Qty</th>
@@ -549,7 +673,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
                   >
                     <option value="Customer Changed Mind">Customer Changed Mind</option>
-                    <option value="Spoilt / Expired Fish">Spoilt / Expired Fish</option>
+                    <option value="Spoilt / Expired Goods">Spoilt / Expired Goods</option>
                     <option value="Quality Discrepancy">Quality Discrepancy / Size Issue</option>
                     <option value="Incorrect Weight Recorded">Incorrect Weight Recorded</option>
                     <option value="Wrong Item Dispensed">Wrong Item Dispensed</option>
@@ -564,7 +688,7 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Fish inspected by manager, returned in cold box"
+                    placeholder="e.g. Item inspected by manager, returned in original condition"
                     value={customReasonNote}
                     onChange={(e) => setCustomReasonNote(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
@@ -596,9 +720,9 @@ export const RefundModal: React.FC<RefundModalProps> = ({ initialTransaction, on
                   </div>
 
                   <div>
-                    <span className="text-slate-500 text-[10px] block uppercase font-bold">Cold Room Inventory Restocked:</span>
+                    <span className="text-slate-500 text-[10px] block uppercase font-bold">Inventory Restocked:</span>
                     <span className="text-base font-bold font-mono text-emerald-700 flex items-center space-x-1">
-                      <span>+{Math.round(totalQuantityToRefund * 1000) / 1000} KG</span>
+                      <span>+{Math.round(totalQuantityToRefund * 1000) / 1000}</span>
                       <span className="text-[11px] font-normal text-slate-500">
                         ({Object.values(itemRefundQuantities).filter(q => q > 0).length} items)
                       </span>

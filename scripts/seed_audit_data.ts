@@ -923,6 +923,20 @@ for (const ct of SEED_CASH_TRANSFERS) {
 console.log('Inserting receipt branding configuration...');
 db.upsertReceiptSettings(SEED_RECEIPT_CONFIG);
 
+console.log('Inserting seed audit log entries...');
+db.addAuditLog({
+  id: 'AUDIT-SEED-001',
+  timestamp: new Date().toISOString(),
+  user_id: 'STAFF-SUPER-001',
+  staff_id: 'STAFF-SUPER-001',
+  staff_name: 'Boluwatife (Super Admin)',
+  category: 'System',
+  action: 'DATABASE_INITIALIZED',
+  severity: 'INFO',
+  details: 'Comprehensive system seed database created with demo inventory, customers, and sales.',
+  metadata: { version: 1 }
+});
+
 // 10. Update seedData.json file for permanent persistence
 try {
   const currentSnapshot = db.getSnapshot();

@@ -16,3 +16,7 @@ coverage/
 *.db-wal
 *.db-shm
 
+# Windows installers and executables
+*.exe
+
+

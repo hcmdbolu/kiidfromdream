@@ -11,7 +11,7 @@ interface ParkOrderPromptModalProps {
 const COMMON_HOLD_REASONS = [
   'Awaiting bank transfer credit alert / confirmation',
   'Customer stepped away to withdraw cash at ATM',
-  'Customer went back to choose additional fish / items',
+  'Customer went back to choose additional items',
   'POS card payment pending terminal reconnect',
   'Customer on phone confirming order details with buyer',
   'General walk-in queue hold',
@@ -40,7 +40,7 @@ export const ParkOrderPromptModal: React.FC<ParkOrderPromptModalProps> = ({
   const handleConfirmPark = () => {
     setErrorMsg(null);
     if (cart.length === 0) {
-      setErrorMsg('Cannot hold an empty cart. Please add fish items first.');
+      setErrorMsg('Cannot hold an empty cart. Please add items first.');
       return;
     }
 

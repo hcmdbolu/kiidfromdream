@@ -63,23 +63,23 @@ const PERMISSION_GROUPS: {
     ],
   },
   {
-    category: 'Inventory & Cold Room Control',
+    category: 'Inventory & Stock Control',
     description: 'Stock management, receiving deliveries, and inventory auditing',
     permissions: [
-      { key: 'CAN_VIEW_INVENTORY', label: 'View Inventory & Stock Costs', desc: 'Inspect cold room stock balances, unit costs, and reorder alerts' },
-      { key: 'CAN_RECEIVE_GOODS', label: 'Receive Goods Deliveries', desc: 'Inspect supplier shipments, record batches, and increment cold room stock' },
+      { key: 'CAN_VIEW_INVENTORY', label: 'View Inventory & Stock Costs', desc: 'Inspect warehouse & store stock balances, unit costs, and reorder alerts' },
+      { key: 'CAN_RECEIVE_GOODS', label: 'Receive Goods Deliveries', desc: 'Inspect supplier shipments, record batches, and increment inventory stock' },
       { key: 'CAN_CYCLE_COUNT', label: 'Conduct Cycle Count Audits', desc: 'Perform physical count checks and reconcile variance in stock levels' },
       { key: 'CAN_TRANSFER_STOCK', label: 'Inter-Facility Stock Transfers', desc: 'Authorize and execute stock transfers between storage units and branch counters' },
-      { key: 'CAN_MANAGE_PRODUCTS', label: 'Product Catalog Management', desc: 'Create, modify, price, and archive fish and seafood product SKUs' },
+      { key: 'CAN_MANAGE_PRODUCTS', label: 'Product Catalog Management', desc: 'Create, modify, price, and archive product catalog SKUs' },
     ],
   },
   {
     category: 'Purchasing & Supplier Management',
     description: 'Vendor relationship management and supply replenishment',
     permissions: [
-      { key: 'CAN_CREATE_PO', label: 'Issue Purchase Orders', desc: 'Create and submit stock replenishment purchase orders to fish suppliers' },
+      { key: 'CAN_CREATE_PO', label: 'Issue Purchase Orders', desc: 'Create and submit stock replenishment purchase orders to suppliers' },
       { key: 'CAN_CANCEL_PO', label: 'Cancel Purchase Orders', desc: 'Revoke and void unfilled or delayed purchase order contracts' },
-      { key: 'CAN_MANAGE_SUPPLIERS', label: 'Manage Supplier Directory', desc: 'Add new fish farms/vessel suppliers, edit contact terms, and lead times' },
+      { key: 'CAN_MANAGE_SUPPLIERS', label: 'Manage Supplier Directory', desc: 'Add new vendors and suppliers, edit contact terms, and lead times' },
     ],
   },
   {
@@ -110,6 +110,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
     setActiveStaffId,
     auditLogs,
     openFactoryResetModal,
+    openBackupModal,
     exportBackupData,
     products,
     sales,
@@ -215,7 +216,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
   };
 
   // Handle Form Submit
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
 
@@ -258,7 +259,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
         return;
       }
 
-      updateStaff(editingStaffId, {
+      await updateStaff(editingStaffId, {
         staff_name: trimmedName,
         username: cleanUsername,
         phone_number: formData.phone_number.trim() || '+234 800 000 0000',
@@ -271,10 +272,10 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
 
       setFeedbackMessage({
         type: 'success',
-        text: `Staff profile for ${trimmedName} updated successfully.`,
+        text: `Staff profile for ${trimmedName} updated and permanently saved to database.`,
       });
     } else {
-      addStaff({
+      await addStaff({
         staff_name: trimmedName,
         username: cleanUsername,
         phone_number: formData.phone_number.trim() || '+234 800 000 0000',
@@ -288,7 +289,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
 
       setFeedbackMessage({
         type: 'success',
-        text: `New staff member ${trimmedName} registered with PIN ${formData.pin}.`,
+        text: `New staff member ${trimmedName} registered with PIN ${formData.pin} and permanently saved to database.`,
       });
     }
 
@@ -297,7 +298,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
   };
 
   // Toggle Staff Status (Active <-> Inactive)
-  const handleToggleStatus = (emp: Employee) => {
+  const handleToggleStatus = async (emp: Employee) => {
     if (emp.role === 'Super Admin' || emp.username?.toLowerCase() === 'boluwatife') {
       alert('Security Protection: The Super Admin account (Boluwatife) cannot be suspended.');
       return;
@@ -317,7 +318,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
     }
 
     const newStatus = emp.status === 'Active' ? 'Inactive' : 'Active';
-    updateStaff(emp.staff_id, { status: newStatus });
+    await updateStaff(emp.staff_id, { status: newStatus });
     setFeedbackMessage({
       type: 'success',
       text: `${emp.staff_name} account status changed to ${newStatus}.`,
@@ -326,7 +327,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
   };
 
   // Delete staff member safely
-  const handleDeleteStaff = (emp: Employee) => {
+  const handleDeleteStaff = async (emp: Employee) => {
     if (emp.role === 'Super Admin' || emp.username?.toLowerCase() === 'boluwatife') {
       alert('Security Protection: The Super Admin account (Boluwatife) cannot be deleted.');
       return;
@@ -346,7 +347,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
     }
 
     if (window.confirm(`Are you sure you want to permanently delete staff profile "${emp.staff_name}" (${emp.staff_id})?\n\nNote: All past audit logs and sales receipts authored by this staff member will remain intact for compliance.`)) {
-      deleteStaff(emp.staff_id);
+      await deleteStaff(emp.staff_id);
       setFeedbackMessage({
         type: 'success',
         text: `Staff member ${emp.staff_name} removed from system directory.`,
@@ -370,7 +371,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
   };
 
   // Submit Quick PIN Reset
-  const handleSubmitPinReset = (e: React.FormEvent) => {
+  const handleSubmitPinReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pinResetTarget) return;
 
@@ -379,7 +380,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
       return;
     }
 
-    updateStaff(pinResetTarget.staff_id, { pin: newPinInput });
+    await updateStaff(pinResetTarget.staff_id, { pin: newPinInput });
     setFeedbackMessage({
       type: 'success',
       text: `Security PIN for ${pinResetTarget.staff_name} has been reset to ${newPinInput}.`,
@@ -1165,7 +1166,7 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
             <div>
               <h3 className="font-bold text-slate-900 text-sm">Shift Coverage & Operating Windows</h3>
               <p className="text-xs text-slate-500">
-                Staff distribution across morning, afternoon, and management shifts for counter and cold room coverage.
+                Staff distribution across morning, afternoon, and management shifts for counter and store coverage.
               </p>
             </div>
             <div className="text-xs text-slate-500 font-mono">
@@ -1399,11 +1400,11 @@ export const StaffAndRolesManager: React.FC<StaffAndRolesManagerProps> = ({ isMo
               </button>
               <button
                 type="button"
-                onClick={exportBackupData}
+                onClick={openBackupModal}
                 className="px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors flex items-center space-x-1.5 cursor-pointer shadow-xs"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export JSON Backup</span>
+                <Database className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Backup & Restore Data</span>
               </button>
             </div>
           </div>

@@ -36,33 +36,39 @@ export interface TargetField {
 }
 
 const TARGET_FIELDS: TargetField[] = [
-  { key: 'item_name', label: 'Product Name', required: true, description: 'Fish species or product title (e.g., Atlantic Salmon Fillet)' },
-  { key: 'product_category', label: 'Category', required: true, description: 'Freshwater Fish, Saltwater Fish, Frozen Fish, or Dried Fish' },
+  { key: 'item_name', label: 'Product Name', required: true, description: 'Product title (e.g., Basmati Rice 5kg, Milk 1L)' },
+  { key: 'product_category', label: 'Category', required: true, description: 'General, Groceries, Beverages, Food & Snacks, Perishables, Frozen Goods, etc.' },
   { key: 'selling_price', label: 'Unit Price (Selling)', required: true, description: 'Retail counter selling price in ₦ per unit' },
   { key: 'quantity', label: 'Initial Stock (Float / Decimal)', required: true, description: 'Current available stock — supports float numbers (e.g., 60.5 kg, 45.75 kg, 120 pieces)' },
-  { key: 'product_measure_unit', label: 'Measurement Type', required: true, description: 'Unit of measure: KG, PIECES, LITERS, or TONS' },
+  { key: 'product_measure_unit', label: 'Measurement Type', required: true, description: 'Unit of measure: PCS, PIECES, KG, PACK, BOX, CARTON, BOTTLE, CAN, BAG, LITERS, or TONS' },
   { key: 'item_cost', label: 'Wholesale Cost', required: false, description: 'Acquisition / landing cost in ₦ (defaults to 70% of price)' },
   { key: 'reorder_level', label: 'Reorder Level', required: false, description: 'Low stock threshold — supports float decimals (e.g. 15.5 kg, 20 pieces)' },
   { key: 'expiry_date', label: 'Expiry Date', required: false, description: 'Date format YYYY-MM-DD (defaults to 30 days ahead)' },
-  { key: 'supplier_id', label: 'Supplier ID', required: false, description: 'Vendor code e.g. SUP-00012 (defaults to primary supplier)' },
+  { key: 'supplier_id', label: 'Supplier ID', required: false, description: 'Vendor code e.g. SUP-00001 (defaults to primary supplier)' },
 ];
 
 const SAMPLE_CSV_DATA = `Product Name,Category,Unit Price (NGN),Initial Stock,Measurement Type,Wholesale Cost (NGN),Reorder Level,Expiry Date,Supplier ID
-Atlantic Salmon Fillet,Frozen Fish,8500,60.5,KG,6200,15.5,2026-11-30,SUP-00012
-Live African Catfish (Jumbo),Freshwater Fish,4500,120,PIECES,3100,25,2026-10-25,SUP-00012
-Yellowfin Tuna Steaks,Saltwater Fish,7800,45.75,KG,5600,10.5,2026-11-15,SUP-00013
-Smoked Mangrove Snapper,Dried Fish,5200,80,PIECES,3800,20,2026-12-20,SUP-00014
-Tiger Prawns (Headless),Frozen Fish,11000,35.25,KG,8500,10.0,2026-12-05,SUP-00013
-Fresh Nile Perch Steaks,Freshwater Fish,6000,50.8,KG,4200,15.0,2026-10-31,SUP-00012
-Atlantic Mackerel (Titus),Frozen Fish,3500,150.5,KG,2400,30.0,2026-11-20,SUP-00013
-Dried Stockfish Flakes,Dried Fish,9500,40.25,KG,7000,10.0,2027-02-15,SUP-00014`;
+Basmati Rice (5kg),Groceries,12500,50,BAG,9500,10,2026-12-31,SUP-00001
+Full Cream Milk (1L),Beverages,2200,120,PIECES,1700,25,2026-11-25,SUP-00001
+Canned Plum Tomatoes,Groceries,1800,80,CAN,1300,15,2027-05-15,SUP-00002
+Frozen Chicken Wings,Frozen Goods,6500,45.5,KG,4800,10.0,2026-11-15,SUP-00002
+Corn Flakes Cereal (500g),Food & Snacks,3200,60,PACK,2400,12,2026-12-05,SUP-00001
+Instant Noodles Carton (40pk),Groceries,9800,30,CARTON,7800,5,2027-01-20,SUP-00001
+Spring Water 75cl (12pk),Beverages,2500,100,PACK,1800,20,2026-12-30,SUP-00001
+Atlantic Salmon Fillet,Frozen Goods,8500,25.5,KG,6200,5.0,2026-11-30,SUP-00002`;
 
 // Category default fallback images
-const CATEGORY_IMAGES: Record<ProductCategory, string> = {
-  'Freshwater Fish': 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=600&auto=format&fit=crop&q=80',
-  'Saltwater Fish': 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=600&auto=format&fit=crop&q=80',
-  'Frozen Fish': 'https://images.unsplash.com/photo-1534043464124-3be32fe000c9?w=600&auto=format&fit=crop&q=80',
-  'Dried Fish': 'https://images.unsplash.com/photo-1579613832125-5d34a13ffe0a?w=600&auto=format&fit=crop&q=80',
+const CATEGORY_IMAGES: Partial<Record<ProductCategory, string>> = {
+  'General': '/placeholder-product.svg',
+  'Groceries': '/placeholder-product.svg',
+  'Beverages': '/placeholder-product.svg',
+  'Food & Snacks': '/placeholder-product.svg',
+  'Perishables': '/placeholder-product.svg',
+  'Frozen Goods': '/placeholder-product.svg',
+  'Electronics': '/placeholder-product.svg',
+  'Apparel & Clothing': '/placeholder-product.svg',
+  'Health & Beauty': '/placeholder-product.svg',
+  'Home & Living': '/placeholder-product.svg',
 };
 
 // Robust CSV parser supporting quotes, commas within quotes, CRLF/LF
@@ -123,26 +129,35 @@ export function parseCSV(text: string): { headers: string[]; rows: string[][] } 
 // Normalizer for Product Category
 function normalizeCategory(raw: string): ProductCategory {
   const s = raw.toLowerCase().trim();
-  if (s.includes('freshwater') || s.includes('catfish') || s.includes('tilapia') || s.includes('nile') || s.includes('carp')) {
-    return 'Freshwater Fish';
-  }
-  if (s.includes('saltwater') || s.includes('sea') || s.includes('tuna') || s.includes('snapper') || s.includes('croaker') || s.includes('barracuda')) {
-    return 'Saltwater Fish';
-  }
-  if (s.includes('dried') || s.includes('smoked') || s.includes('dry') || s.includes('stockfish')) {
-    return 'Dried Fish';
-  }
-  return 'Frozen Fish'; // Default fallback
+  if (s.includes('grocer') || s.includes('rice') || s.includes('cereal') || s.includes('noodle')) return 'Groceries';
+  if (s.includes('beverag') || s.includes('drink') || s.includes('water') || s.includes('juice') || s.includes('milk')) return 'Beverages';
+  if (s.includes('snack') || s.includes('food') || s.includes('biscuit') || s.includes('cookie')) return 'Food & Snacks';
+  if (s.includes('perish') || s.includes('vegetable') || s.includes('fruit')) return 'Perishables';
+  if (s.includes('frozen') || s.includes('ice') || s.includes('deep freeze')) return 'Frozen Goods';
+  if (s.includes('electr') || s.includes('gadget') || s.includes('phone') || s.includes('battery')) return 'Electronics';
+  if (s.includes('apparel') || s.includes('cloth') || s.includes('shoe') || s.includes('wear')) return 'Apparel & Clothing';
+  if (s.includes('beauty') || s.includes('health') || s.includes('cosmetic') || s.includes('soap')) return 'Health & Beauty';
+  if (s.includes('home') || s.includes('living') || s.includes('kitchen')) return 'Home & Living';
+  if (s.includes('freshwater') || s.includes('catfish') || s.includes('tilapia')) return 'Freshwater Fish';
+  if (s.includes('saltwater') || s.includes('tuna') || s.includes('croaker')) return 'Saltwater Fish';
+  if (s.includes('dried') || s.includes('smoked') || s.includes('stockfish')) return 'Dried Fish';
+  return 'General';
 }
 
 // Normalizer for Measurement Unit
 function normalizeMeasureUnit(raw: string): ProductUnit {
   const s = raw.toUpperCase().trim();
   if (s === 'KG' || s === 'KGS' || s === 'KILOGRAM' || s === 'KILOGRAMS') return 'KG';
-  if (s === 'PIECES' || s === 'PIECE' || s === 'PCS' || s === 'PC' || s === 'UNIT' || s === 'UNITS') return 'PIECES';
+  if (s === 'PIECES' || s === 'PIECE' || s === 'PCS' || s === 'PC' || s === 'UNIT' || s === 'UNITS') return 'PCS';
+  if (s === 'PACK' || s === 'PACKS' || s === 'PKT' || s === 'PKTS') return 'PACK';
+  if (s === 'BOX' || s === 'BOXES') return 'BOX';
+  if (s === 'CARTON' || s === 'CARTONS' || s === 'CTN') return 'CARTON';
+  if (s === 'BOTTLE' || s === 'BOTTLES' || s === 'BTL') return 'BOTTLE';
+  if (s === 'CAN' || s === 'CANS' || s === 'TIN' || s === 'TINS') return 'CAN';
+  if (s === 'BAG' || s === 'BAGS') return 'BAG';
   if (s === 'LITERS' || s === 'LITER' || s === 'LTR' || s === 'L') return 'LITERS';
   if (s === 'TONS' || s === 'TON' || s === 'TONNES') return 'TONS';
-  return 'KG'; // Standard default for fish markets
+  return 'PCS';
 }
 
 // Clean numeric strings (removes ₦, $, commas)
@@ -197,7 +212,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `kiidfromdream_fish_import_template.csv`);
+    link.setAttribute('download', `kiidfromdream_product_import_template.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -206,7 +221,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
 
   // Load sample demo data directly
   const handleLoadSampleData = () => {
-    processRawCSV(SAMPLE_CSV_DATA, 'demo_sample_fish_products.csv');
+    processRawCSV(SAMPLE_CSV_DATA, 'demo_sample_products.csv');
   };
 
   // Process raw CSV string
@@ -418,10 +433,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
       }
 
       // 10. Picture
-      const itemPicture = CATEGORY_IMAGES[productCategory] || CATEGORY_IMAGES['Frozen Fish'];
+      const itemPicture = CATEGORY_IMAGES[productCategory] || '/placeholder-product.svg';
 
       const item: Omit<Product, 'item_sn'> = {
-        item_name: rawValues.name || 'Unnamed Fish SKU',
+        item_name: rawValues.name || 'Unnamed Item SKU',
         item_picture: itemPicture,
         quantity: Math.max(0, quantity),
         expiry_date: expiryDate,
@@ -508,13 +523,13 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="font-bold text-base text-white tracking-tight">Bulk Import Fish & Seafood SKUs</h3>
+                <h3 className="font-bold text-base text-white tracking-tight">Bulk Import Inventory & Catalog SKUs</h3>
                 <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/30">
                   CSV Batch Engine
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Mass-upload products into cold-room inventory with automatic column mapping and validation.
+                Mass-upload products into inventory with automatic column mapping and validation.
               </p>
             </div>
           </div>
@@ -643,7 +658,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
                   type="button"
                   onClick={handleLoadSampleData}
                   className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer"
-                  title="Test bulk import immediately with pre-loaded fresh & frozen fish records"
+                  title="Test bulk import immediately with pre-loaded product records"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Load Sample Batch</span>
@@ -679,7 +694,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
 
                   <div>
                     <p className="font-bold text-slate-900 text-sm">
-                      Drag & drop your fish inventory CSV file here
+                      Drag & drop your inventory CSV file here
                     </p>
                     <p className="text-xs text-slate-500 mt-1">
                       or <span className="text-emerald-600 font-semibold underline">browse from your computer</span>
@@ -715,7 +730,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
                     rows={8}
                     value={pastedText}
                     onChange={(e) => setPastedText(e.target.value)}
-                    placeholder="Product Name,Category,Unit Price (NGN),Initial Stock,Measurement Type&#10;Atlantic Salmon Fillet,Frozen Fish,8500,60.5,KG&#10;Live African Catfish,Freshwater Fish,4500,120,PIECES"
+                    placeholder="Product Name,Category,Unit Price (NGN),Initial Stock,Measurement Type&#10;Fresh Whole Milk 1L,Beverages,1200,60,PCS&#10;Basmati Premium Rice 5kg,Groceries,8500,120,PACK"
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-mono text-xs text-slate-800 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
                   />
                   <div className="flex justify-end">
@@ -740,7 +755,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
                   <div>
                     <h4 className="font-bold text-slate-900">Need the exact CSV format?</h4>
                     <p className="text-slate-500 mt-0.5">
-                      Download the official template with pre-filled sample rows for Freshwater, Saltwater, Frozen, and Dried fish.
+                      Download the official template with pre-filled sample rows for standard retail categories.
                     </p>
                   </div>
                 </div>
@@ -1046,10 +1061,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
 
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  Successfully Imported {importedCount} Fish Products!
+                  Successfully Imported {importedCount} Products!
                 </h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                  All items have been assigned automatic SKU serial numbers (Item SN) and registered into your cold-room inventory and POS terminal.
+                  All items have been assigned automatic SKU serial numbers (Item SN) and registered into your inventory and POS terminal.
                 </p>
               </div>
 

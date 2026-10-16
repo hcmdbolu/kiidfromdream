@@ -7,7 +7,9 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
-    "data/**/*",
+    "data/pos_database.json",
+    "!data/*.db*",
+    "!data/*.sqlite*",
     "package.json"
   ],
   "extraResources": [
@@ -35,6 +37,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
+    "deleteAppDataOnUninstall": false,
     "shortcutName": "KIID FROM DREAM POS"
   }
 }

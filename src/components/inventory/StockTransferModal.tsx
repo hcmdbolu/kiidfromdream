@@ -10,12 +10,12 @@ interface StockTransferModalProps {
 }
 
 const STORAGE_LOCATIONS = [
-  'Main Walk-in Cold Room A',
-  'Display Counter Fish Tank 1',
-  'Display Counter Ice Bed 2',
-  'Deep Freeze Storage Unit B',
-  'Secondary Wharf Holding Facility',
-  'Retail Prep & Cleaning Station',
+  'Main Warehouse Storage A',
+  'Front Store Display Shelf 1',
+  'Secondary Storage Room B',
+  'Backroom Restock Area',
+  'Warehouse Shelf C / Secure Storage',
+  'Retail Prep Station',
 ];
 
 export const StockTransferModal: React.FC<StockTransferModalProps> = ({
@@ -31,7 +31,7 @@ export const StockTransferModal: React.FC<StockTransferModalProps> = ({
   const [quantity, setQuantity] = useState<number>(10);
   const [fromLocation, setFromLocation] = useState<string>(STORAGE_LOCATIONS[0]);
   const [toLocation, setToLocation] = useState<string>(STORAGE_LOCATIONS[1]);
-  const [notes, setNotes] = useState<string>('Display counter replenishment');
+  const [notes, setNotes] = useState<string>('Display shelf replenishment');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -45,7 +45,7 @@ export const StockTransferModal: React.FC<StockTransferModalProps> = ({
     setSuccess(null);
 
     if (!currentProduct) {
-      setError('Please select a fish product to transfer.');
+      setError('Please select a product to transfer.');
       return;
     }
 
@@ -87,9 +87,9 @@ export const StockTransferModal: React.FC<StockTransferModalProps> = ({
               <ArrowLeftRight className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-base text-white">Internal Fish Stock Transfer</h3>
+              <h3 className="font-bold text-base text-white">Internal Stock Transfer</h3>
               <p className="text-xs text-slate-400">
-                Manager Cold-Room & Counter Movement Authorization
+                Warehouse, Store & Floor Movement Authorization
               </p>
             </div>
           </div>

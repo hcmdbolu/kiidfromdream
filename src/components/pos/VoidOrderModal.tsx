@@ -23,9 +23,9 @@ const COMMON_VOID_REASONS = [
   'Customer walked away / abandoned basket',
   'Insufficient funds / card or transfer declined',
   'Bank transfer timed out / credit alert not received',
-  'Wrong fish item or weight entered (cashier mistake)',
+  'Wrong item or quantity entered (cashier mistake)',
   'Customer disputed pricing / changed mind at checkout',
-  'Fish quality rejection / customer requested cancellation',
+  'Product quality rejection / customer requested cancellation',
   'Duplicate entry / cashier testing',
   'Other operational issue',
 ];

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
 import { SaleTransaction, RefundRecord, VoidedOrderRecord } from '../../types';
+import { RefundVoucherModal } from '../refund/RefundVoucherModal';
 import { 
   Search, 
   RotateCcw, 
@@ -19,7 +20,8 @@ import {
   ShieldCheck,
   Ban,
   X,
-  Fish
+  Package,
+  Printer
 } from 'lucide-react';
 
 interface SalesHistoryManagerProps {
@@ -42,7 +44,8 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
     syncStatus, 
     lastSyncTime, 
     serverVersion, 
-    forceSync 
+    forceSync,
+    openMigrationModal
   } = usePos();
 
   const canRefund = activeStaff.role === 'Manager' || activeStaff.role === 'Admin';
@@ -52,8 +55,48 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
   const [paymentFilter, setPaymentFilter] = useState<string>('All');
   const [terminalFilter, setTerminalFilter] = useState<string>('All');
   const [dateFilter, setDateFilter] = useState<string>('All');
+  const [originFilter, setOriginFilter] = useState<'All' | 'Live' | 'Imported'>('All');
   const [voidReasonFilter, setVoidReasonFilter] = useState<string>('All');
   const [selectedVoidRecord, setSelectedVoidRecord] = useState<VoidedOrderRecord | null>(null);
+  const [selectedRefundVoucher, setSelectedRefundVoucher] = useState<RefundRecord | null>(null);
+
+  const getLocalDateString = (d: Date = new Date()): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const extractDateKey = (dateTimeStr?: string | null): string => {
+    if (!dateTimeStr || typeof dateTimeStr !== 'string') return '';
+    const trimmed = dateTimeStr.trim();
+    if (!trimmed) return '';
+
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+
+    const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (slashMatch) {
+      const part1 = parseInt(slashMatch[1], 10);
+      const part2 = parseInt(slashMatch[2], 10);
+      const y = slashMatch[3];
+      if (part1 > 12) {
+        return `${y}-${String(part2).padStart(2, '0')}-${String(part1).padStart(2, '0')}`;
+      }
+      return `${y}-${String(part1).padStart(2, '0')}-${String(part2).padStart(2, '0')}`;
+    }
+
+    try {
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+      }
+    } catch {}
+
+    return trimmed.split(/[\s,T]+/)[0] || '';
+  };
 
   // Filter sales
   const filteredSales = useMemo(() => {
@@ -76,6 +119,8 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
           matchPayment = tx.payment_method === 'Bank Transfer' || Boolean(tx.payment_splits && tx.payment_splits.some(s => s.method === 'Bank Transfer'));
         } else if (paymentFilter === 'POS') {
           matchPayment = tx.payment_method === 'POS' || tx.payment_method === 'Debit/Credit Card' || Boolean(tx.payment_splits && tx.payment_splits.some(s => s.method === 'POS' || s.method === 'Debit/Credit Card'));
+        } else if (paymentFilter === 'Credit / Pay Later') {
+          matchPayment = tx.payment_method === 'Credit / Pay Later';
         } else {
           matchPayment = tx.payment_method === paymentFilter;
         }
@@ -88,12 +133,21 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
 
       let matchDate = true;
       if (dateFilter === 'today') {
-        matchDate = tx.date_time.startsWith('2026-09-22');
+        const todayKey = getLocalDateString(new Date());
+        const txDateKey = extractDateKey(tx.date_time || (tx as any).timestamp);
+        matchDate = txDateKey === todayKey;
       }
 
-      return matchSearch && matchPayment && matchTerminal && matchDate;
+      let matchOrigin = true;
+      if (originFilter === 'Live') {
+        matchOrigin = !tx.is_historical_import;
+      } else if (originFilter === 'Imported') {
+        matchOrigin = !!tx.is_historical_import;
+      }
+
+      return matchSearch && matchPayment && matchTerminal && matchDate && matchOrigin;
     });
-  }, [sales, search, paymentFilter, terminalFilter, dateFilter]);
+  }, [sales, search, paymentFilter, terminalFilter, dateFilter, originFilter]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -112,43 +166,56 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg text-xs font-semibold">
-          <button
-            onClick={() => setActiveTab('sales')}
-            className={`px-3 py-1.5 rounded-md transition-all ${
-              activeTab === 'sales'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Sales Log ({sales.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('refunds')}
-            className={`px-3 py-1.5 rounded-md transition-all ${
-              activeTab === 'refunds'
-                ? 'bg-white text-rose-700 shadow-xs'
-                : 'text-slate-600 hover:text-rose-700'
-            }`}
-          >
-            Refunds & Returns ({refunds.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('voided')}
-            className={`px-3 py-1.5 rounded-md transition-all flex items-center space-x-1.5 ${
-              activeTab === 'voided'
-                ? 'bg-white text-rose-700 shadow-xs font-bold'
-                : 'text-slate-600 hover:text-rose-700'
-            }`}
-          >
-            <span>Voided Orders</span>
-            {voidedOrders.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[10px] font-mono font-bold">
-                {voidedOrders.length}
-              </span>
-            )}
-          </button>
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-lg text-xs font-semibold">
+            <button
+              onClick={() => setActiveTab('sales')}
+              className={`px-3 py-1.5 rounded-md transition-all ${
+                activeTab === 'sales'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Sales Log ({sales.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('refunds')}
+              className={`px-3 py-1.5 rounded-md transition-all ${
+                activeTab === 'refunds'
+                  ? 'bg-white text-rose-700 shadow-xs'
+                  : 'text-slate-600 hover:text-rose-700'
+              }`}
+            >
+              Refunds & Returns ({refunds.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('voided')}
+              className={`px-3 py-1.5 rounded-md transition-all flex items-center space-x-1.5 ${
+                activeTab === 'voided'
+                  ? 'bg-white text-rose-700 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-rose-700'
+              }`}
+            >
+              <span>Voided Orders</span>
+              {voidedOrders.length > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-800 text-[10px] font-mono font-bold">
+                  {voidedOrders.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {['Manager', 'Admin', 'Super Admin'].includes(activeStaff.role) && (
+            <button
+              type="button"
+              onClick={openMigrationModal}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              title="Import Legacy / Third-Party Sales Data into SQLite"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Import Legacy Sales</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -191,14 +258,14 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
           
-          <div className="relative lg:col-span-2">
+          <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search TXN ID, customer, fish item, or POS terminal..."
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
+              placeholder="Search TXN, item..."
+              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
             />
           </div>
 
@@ -212,6 +279,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
               <option value="Cash">Cash Payments</option>
               <option value="Bank Transfer">Bank Transfers</option>
               <option value="POS">POS Terminal Card</option>
+              <option value="Credit / Pay Later">Credit / Pay Later (Debt)</option>
               <option value="Split Payment">Split Payments</option>
             </select>
           </div>
@@ -238,7 +306,19 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
               className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-medium"
             >
               <option value="All">All Dates</option>
-              <option value="today">Today Only (22 Sep 2026)</option>
+              <option value="today">Today Only ({new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })})</option>
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={originFilter}
+              onChange={(e) => setOriginFilter(e.target.value as any)}
+              className="w-full py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-medium"
+            >
+              <option value="All">All Sources (Live & Migrated)</option>
+              <option value="Live">Live POS Counter Sales</option>
+              <option value="Imported">Migrated Archives Only</option>
             </select>
           </div>
 
@@ -268,7 +348,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {filteredSales.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                    <td colSpan={11} className="py-12 text-center text-slate-400">
                       No sales records found matching filter.
                     </td>
                   </tr>
@@ -281,7 +361,14 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                       <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors">
                         {/* ID & Date */}
                         <td className="py-3 px-4 whitespace-nowrap">
-                          <div className="font-mono font-bold text-slate-900">{tx.transaction_id}</div>
+                          <div className="font-mono font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <span>{tx.transaction_id}</span>
+                            {tx.is_historical_import && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 border border-indigo-200" title={`Historical Migration Batch: ${tx.migration_batch_id || 'Legacy Archive'}`}>
+                                📦 Migrated
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 font-mono">{tx.date_time}</div>
                         </td>
 
@@ -391,10 +478,27 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                                   ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
                                   : tx.payment_method === 'Bank Transfer' 
                                   ? 'bg-blue-50 text-blue-800 border border-blue-200' 
+                                  : tx.payment_method === 'Credit / Pay Later'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300 font-bold'
                                   : 'bg-slate-100 text-slate-800 border border-slate-200'
                               }`}>
                                 {tx.payment_method}
                               </span>
+                              {tx.payment_method === 'Credit / Pay Later' && (
+                                <div className="text-[10px] space-y-0.5 mt-0.5">
+                                  <div className="text-emerald-700 font-semibold font-mono">
+                                    Dep: ₦{(tx.deposit_amount || 0).toLocaleString()}
+                                  </div>
+                                  <div className="text-rose-700 font-bold font-mono">
+                                    Debt: ₦{(tx.balance_due ?? (tx.final_amount - (tx.deposit_amount || 0))).toLocaleString()}
+                                  </div>
+                                  {tx.payment_due_date && (
+                                    <div className="text-[9px] text-slate-500">
+                                      Due: {tx.payment_due_date}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {tx.pos_terminal_name && (
                                 <div className="text-[10px] text-purple-700 font-medium font-mono">
                                   {tx.pos_terminal_name}
@@ -485,12 +589,13 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                   <th className="py-3 px-4">Deduction Target</th>
                   <th className="py-3 px-4">Reason</th>
                   <th className="py-3 px-4">Authorized By</th>
+                  <th className="py-3 px-4 text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {refunds.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-400">
+                    <td colSpan={11} className="py-12 text-center text-slate-400">
                       No customer refunds recorded.
                     </td>
                   </tr>
@@ -560,6 +665,17 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                         </td>
                         <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                           {authorizer ? authorizer.staff_name : staff ? staff.staff_name : ref.staff_id}
+                        </td>
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedRefundVoucher(ref)}
+                            className="px-2.5 py-1 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg transition-colors flex items-center space-x-1 mx-auto"
+                            title="Print Official Refund Slip / Voucher"
+                          >
+                            <Printer className="w-3 h-3" />
+                            <span>Voucher</span>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -820,7 +936,7 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
                   {selectedVoidRecord.items.map((item, idx) => (
                     <div key={idx} className="py-1.5 flex items-center justify-between text-xs">
                       <div className="flex items-center space-x-2">
-                        <Fish className="w-3.5 h-3.5 text-emerald-600" />
+                        <Package className="w-3.5 h-3.5 text-emerald-600" />
                         <div>
                           <span className="font-semibold text-slate-800">{item.item_name}</span>
                           <span className="text-[10px] text-slate-400 block">{item.quantity_sold} {item.unit} @ ₦{item.unit_price.toLocaleString()}</span>
@@ -855,6 +971,14 @@ export const SalesHistoryManager: React.FC<SalesHistoryManagerProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Official Printable Refund Voucher Modal */}
+      {selectedRefundVoucher && (
+        <RefundVoucherModal
+          refund={selectedRefundVoucher}
+          onClose={() => setSelectedRefundVoucher(null)}
+        />
       )}
 
     </div>

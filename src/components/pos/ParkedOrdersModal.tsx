@@ -11,7 +11,7 @@ import {
   User, 
   AlertCircle,
   CheckCircle2,
-  Fish,
+  Package,
   Search,
   RotateCcw,
   ShoppingBag
@@ -252,7 +252,7 @@ const ParkedOrdersModalContent: React.FC<ParkedOrdersModalProps> = ({
                               key={idx}
                               className="bg-white border border-slate-200 rounded-md px-2 py-0.5 text-[11px] text-slate-700 flex items-center space-x-1"
                             >
-                              <Fish className="w-3 h-3 text-emerald-600" />
+                              <Package className="w-3 h-3 text-emerald-600" />
                               <span>
                                 {item.quantity_sold || 1} {item.unit || 'unit'} {item.item_name || 'Item'}
                               </span>

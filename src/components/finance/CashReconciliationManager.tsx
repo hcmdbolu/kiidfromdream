@@ -24,9 +24,12 @@ import {
   X,
   Receipt,
   Calendar,
-  AlertTriangle
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownLeft,
+  PlusCircle
 } from 'lucide-react';
-import { CashToBankTransfer, CashierDrawerSummary, Employee } from '../../types';
+import { CashToBankTransfer, CashTransferType, CashierDrawerSummary, Employee } from '../../types';
 
 interface CashReconciliationManagerProps {
   onOpenPosSetup?: () => void;
@@ -38,6 +41,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
     activeStaff, 
     posTerminals, 
     cashTransfers, 
+    customerDebtRepayments,
     getCashierDrawerSummary, 
     processCashToBankTransfer, 
     sales, 
@@ -47,9 +51,11 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
   const [activeTab, setActiveTab] = useState<'drawers' | 'transfers'>('drawers');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCashierId, setSelectedCashierId] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<'all' | 'today' | 'week' | 'month'>('all');
   
   // Transfer Modal State
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [transferType, setTransferType] = useState<CashTransferType>('POS_TO_BANK');
   const [targetCashier, setTargetCashier] = useState<Employee | null>(null);
   const [transferAmount, setTransferAmount] = useState<string>('');
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
@@ -62,7 +68,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
   // Voucher / Receipt View Modal
   const [selectedVoucher, setSelectedVoucher] = useState<CashToBankTransfer | null>(null);
 
-  // Get active bank accounts for transfer destination
+  // Get active bank accounts for transfer destination / source
   const bankAccounts = useMemo(() => {
     return posTerminals.filter(t => t.type === 'BANK_TRANSFER_ACCOUNT' && t.status === 'Active');
   }, [posTerminals]);
@@ -70,14 +76,63 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
   // Drawer summaries for all cashiers / staff who have handled cash
   const drawerSummaries: CashierDrawerSummary[] = useMemo(() => {
     return getCashierDrawerSummary();
-  }, [getCashierDrawerSummary, employees, sales, refunds, cashTransfers]);
+  }, [getCashierDrawerSummary, employees, sales, refunds, cashTransfers, customerDebtRepayments]);
+
+  // Helper to filter dates by timeRange
+  const matchesTimeRange = (dateStr: string) => {
+    if (timeRange === 'all') return true;
+    const itemDate = new Date(dateStr);
+    if (isNaN(itemDate.getTime())) return true;
+    const now = new Date();
+
+    if (timeRange === 'today') {
+      return itemDate.toDateString() === now.toDateString();
+    }
+    if (timeRange === 'week') {
+      const pastWeek = new Date();
+      pastWeek.setDate(now.getDate() - 7);
+      return itemDate >= pastWeek && itemDate <= now;
+    }
+    if (timeRange === 'month') {
+      return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+    }
+    return true;
+  };
+
+  // Filtered transfers based on search, cashier, and time range
+  const filteredTransfers = useMemo(() => {
+    return cashTransfers.filter(t => {
+      const matchSearch = 
+        t.transfer_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.cashier_staff_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.manager_staff_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.destination_bank_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (t.destination_account_number && t.destination_account_number.includes(searchQuery)) ||
+        (t.deposit_slip_number && t.deposit_slip_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        t.notes.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchCashier = selectedCashierId === 'all' || t.cashier_staff_id === selectedCashierId;
+      const matchTime = matchesTimeRange(t.date_time);
+
+      return matchSearch && matchCashier && matchTime;
+    });
+  }, [cashTransfers, searchQuery, selectedCashierId, timeRange]);
 
   // Aggregate stats
   const stats = useMemo(() => {
     const totalCashInHand = drawerSummaries.reduce((sum, d) => sum + d.current_cash_in_hand, 0);
     const totalCashCollected = drawerSummaries.reduce((sum, d) => sum + d.total_cash_collected, 0);
     const totalCashRefunded = drawerSummaries.reduce((sum, d) => sum + d.total_cash_refunded, 0);
-    const totalBankTransferred = cashTransfers.reduce((sum, t) => sum + t.amount_transferred, 0);
+    
+    // Distinguish POS-to-Bank and Bank-to-POS
+    const totalBankTransferred = cashTransfers
+      .filter(t => (t.transfer_type === 'POS_TO_BANK' || !t.transfer_type) && matchesTimeRange(t.date_time))
+      .reduce((sum, t) => sum + t.amount_transferred, 0);
+
+    const totalReplenishedFromBank = cashTransfers
+      .filter(t => t.transfer_type === 'BANK_TO_POS' && matchesTimeRange(t.date_time))
+      .reduce((sum, t) => sum + t.amount_transferred, 0);
+
     const activeHoldingCount = drawerSummaries.filter(d => d.current_cash_in_hand > 0).length;
 
     return {
@@ -85,17 +140,28 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
       totalCashCollected,
       totalCashRefunded,
       totalBankTransferred,
+      totalReplenishedFromBank,
       activeHoldingCount,
     };
-  }, [drawerSummaries, cashTransfers]);
+  }, [drawerSummaries, cashTransfers, timeRange]);
 
-  // Open modal for a specific cashier
-  const handleOpenTransferModal = (cashier: Employee) => {
+  // Open modal for a specific cashier and transfer direction
+  const handleOpenTransferModal = (cashier: Employee, type: CashTransferType = 'POS_TO_BANK') => {
     const summary = drawerSummaries.find(d => d.staff_id === cashier.staff_id);
     const availableCash = summary?.current_cash_in_hand || 0;
     
     setTargetCashier(cashier);
-    setTransferAmount(availableCash > 0 ? availableCash.toString() : '');
+    setTransferType(type);
+
+    if (type === 'POS_TO_BANK') {
+      setTransferAmount(availableCash > 0 ? availableCash.toString() : '');
+      setTransferNotes(`Cash handover from ${cashier.staff_name} for bank deposit`);
+      setDepositSlipNumber(`DEP-${Date.now().toString().slice(-6)}`);
+    } else {
+      setTransferAmount('10000');
+      setTransferNotes(`Cash float replenishment for ${cashier.staff_name} till change`);
+      setDepositSlipNumber(`FLT-${Date.now().toString().slice(-6)}`);
+    }
     
     // Default to first active bank account or default one
     const defaultBank = bankAccounts.find(b => b.is_default) || bankAccounts[0];
@@ -103,8 +169,6 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
       setSelectedBankAccountId(defaultBank.id);
     }
     
-    setDepositSlipNumber(`DEP-${Date.now().toString().slice(-6)}`);
-    setTransferNotes(`Cash handover from ${cashier.staff_name} for shift clearing`);
     setManagerPin(activeStaff.role === 'Manager' || activeStaff.role === 'Admin' ? activeStaff.pin : '');
     setTransferError(null);
     setTransferSuccess(null);
@@ -112,19 +176,27 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
   };
 
   // Preset float helper
-  const handleApplyPresetTransfer = (type: 'all' | 'keep5k' | 'keep10k' | 'keep20k') => {
+  const handleApplyPresetTransfer = (preset: 'all' | 'keep5k' | 'keep10k' | 'keep20k' | 'add5k' | 'add10k' | 'add20k' | 'add50k') => {
     if (!targetCashier) return;
     const summary = drawerSummaries.find(d => d.staff_id === targetCashier.staff_id);
     const cash = summary?.current_cash_in_hand || 0;
 
-    if (type === 'all') {
+    if (preset === 'all') {
       setTransferAmount(cash.toString());
-    } else if (type === 'keep5k') {
+    } else if (preset === 'keep5k') {
       setTransferAmount(Math.max(0, cash - 5000).toString());
-    } else if (type === 'keep10k') {
+    } else if (preset === 'keep10k') {
       setTransferAmount(Math.max(0, cash - 10000).toString());
-    } else if (type === 'keep20k') {
+    } else if (preset === 'keep20k') {
       setTransferAmount(Math.max(0, cash - 20000).toString());
+    } else if (preset === 'add5k') {
+      setTransferAmount('5000');
+    } else if (preset === 'add10k') {
+      setTransferAmount('10000');
+    } else if (preset === 'add20k') {
+      setTransferAmount('20000');
+    } else if (preset === 'add50k') {
+      setTransferAmount('50000');
     }
   };
 
@@ -144,6 +216,15 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
       return;
     }
 
+    if (transferType === 'POS_TO_BANK') {
+      const summary = drawerSummaries.find(d => d.staff_id === targetCashier.staff_id);
+      const cash = summary?.current_cash_in_hand || 0;
+      if (numAmount > cash) {
+        setTransferError(`Cannot transfer ₦${numAmount.toLocaleString()} because cashier only has ₦${cash.toLocaleString()} in drawer.`);
+        return;
+      }
+    }
+
     if (!transferNotes || transferNotes.trim().length < 3) {
       setTransferError('Please provide a mandatory audit note explaining this transfer.');
       return;
@@ -161,32 +242,15 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
       depositSlipNumber: depositSlipNumber.trim(),
       notes: transferNotes.trim(),
       managerPin: managerPin.trim(),
+      transfer_type: transferType,
     });
 
     if (!res.success) {
       setTransferError(res.error || 'Failed to complete cash transfer.');
     } else {
       setTransferSuccess(res.transfer || null);
-      // Keep modal open on success view so user can view/print voucher
     }
   };
-
-  // Filtered transfer history
-  const filteredTransfers = useMemo(() => {
-    return cashTransfers.filter(t => {
-      const matchSearch = 
-        t.transfer_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.cashier_staff_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.manager_staff_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.destination_bank_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.destination_account_number.includes(searchQuery) ||
-        (t.deposit_slip_number && t.deposit_slip_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        t.notes.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      const matchCashier = selectedCashierId === 'all' || t.cashier_staff_id === selectedCashierId;
-      return matchSearch && matchCashier;
-    });
-  }, [cashTransfers, searchQuery, selectedCashierId]);
 
   // Printable transfer voucher trigger
   const handlePrintVoucher = () => {
@@ -207,25 +271,39 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                 Cash Reconciliation & Bank Treasury
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Track live cash drawer balances, till collections, and authorize flexible cash-to-bank deposits with full audit trails.
+                Track live cash drawer balances, till collections, and authorize bidirectional fund transfers (POS to Bank and Float Replenishment) with SQLite WAL audit persistence.
               </p>
             </div>
           </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex items-center space-x-2">
-          {/* Quick open transfer for active staff or first cashier */}
+          {/* Replenish Float Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const eligibleCashier = employees.find(e => e.role === 'Cashier') || employees[0];
+              if (eligibleCashier) handleOpenTransferModal(eligibleCashier, 'BANK_TO_POS');
+            }}
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs transition-all shadow-sm shadow-blue-600/20 cursor-pointer active:scale-95"
+          >
+            <ArrowDownLeft className="w-4 h-4" />
+            <span>Replenish Cash Float</span>
+          </button>
+
+          {/* Transfer Cash to Bank Button */}
           <button
             type="button"
             onClick={() => {
               const eligibleCashier = employees.find(e => e.role === 'Cashier' && drawerSummaries.some(d => d.staff_id === e.staff_id && d.current_cash_in_hand > 0)) ||
                 employees.find(e => e.role === 'Cashier') || employees[0];
-              if (eligibleCashier) handleOpenTransferModal(eligibleCashier);
+              if (eligibleCashier) handleOpenTransferModal(eligibleCashier, 'POS_TO_BANK');
             }}
-            className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-sm shadow-emerald-600/20 cursor-pointer active:scale-95"
+            className="flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-all shadow-sm shadow-emerald-600/20 cursor-pointer active:scale-95"
           >
-            <ArrowRightLeft className="w-4 h-4" />
-            <span>Transfer Cash to Bank</span>
+            <ArrowUpRight className="w-4 h-4" />
+            <span>Clear Cash to Bank</span>
           </button>
         </div>
       </div>
@@ -264,7 +342,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               ₦{stats.totalCashCollected.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              From cash sales & split payments
+              Sales, debt settlements & deposits
             </div>
           </div>
         </div>
@@ -272,72 +350,96 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
         {/* Total Banked Transferred */}
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">Cleared to Bank Account</span>
-            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+            <span className="text-xs font-semibold">Cleared to Bank (Deposits)</span>
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
               <Building2 className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black font-mono text-blue-700">
+            <div className="text-2xl font-black font-mono text-emerald-700">
               ₦{stats.totalBankTransferred.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              {cashTransfers.length} verified bank deposit transfer(s)
+              Transferred from tills into commercial bank
             </div>
           </div>
         </div>
 
-        {/* Cash Refunded */}
+        {/* Replenished Float from Bank */}
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-semibold">Cash Refunds Deducted</span>
-            <div className="p-2 rounded-xl bg-rose-50 text-rose-600">
-              <Receipt className="w-4 h-4" />
+            <span className="text-xs font-semibold">Replenished Float Injected</span>
+            <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
+              <RefreshCw className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-2xl font-black font-mono text-rose-600">
-              ₦{stats.totalCashRefunded.toLocaleString()}
+            <div className="text-2xl font-black font-mono text-blue-700">
+              ₦{stats.totalReplenishedFromBank.toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500 mt-1">
-              Authorized cash customer refunds
+              Bank treasury float issued to cashiers
             </div>
           </div>
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab('drawers')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-            activeTab === 'drawers'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Wallet className="w-4 h-4 text-emerald-400" />
-          <span>Active Cashier Drawers ({drawerSummaries.length})</span>
-          {stats.activeHoldingCount > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px]">
-              {stats.activeHoldingCount} active
-            </span>
-          )}
-        </button>
+      {/* Navigation Tabs & Time Range Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-2">
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('drawers')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'drawers'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Wallet className="w-4 h-4 text-emerald-400" />
+            <span>Active Cashier Drawers ({drawerSummaries.length})</span>
+            {stats.activeHoldingCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px]">
+                {stats.activeHoldingCount} active
+              </span>
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('transfers')}
-          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-            activeTab === 'transfers'
-              ? 'bg-slate-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <FileText className="w-4 h-4 text-blue-400" />
-          <span>Cash-to-Bank Transfer Log ({cashTransfers.length})</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('transfers')}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'transfers'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-blue-400" />
+            <span>Fund Transfer Audit Log ({filteredTransfers.length})</span>
+          </button>
+        </div>
+
+        {/* Time Range Chips */}
+        <div className="flex items-center space-x-1.5 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+          {[
+            { id: 'all', label: 'All Time' },
+            { id: 'today', label: 'Today' },
+            { id: 'week', label: 'This Week' },
+            { id: 'month', label: 'This Month' },
+          ].map(chip => (
+            <button
+              key={chip.id}
+              onClick={() => setTimeRange(chip.id as any)}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                timeRange === chip.id
+                  ? 'bg-white text-slate-900 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* TAB 1: CASHIER DRAWERS VIEW */}
@@ -402,18 +504,34 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                         ₦{summary.current_cash_in_hand.toLocaleString()}
                       </div>
                       <div className="text-[10px] text-slate-500 mt-1">
-                        {summary.sales_count} cash sales completed • {summary.transfers_count} bank deposits
+                        {summary.sales_count} cash sales • {summary.transfers_count} bank handovers
                       </div>
                     </div>
 
                     {/* Detailed Drawer Breakdown */}
                     <div className="mt-4 space-y-2 text-xs border-t border-slate-100 pt-3">
                       <div className="flex justify-between items-center text-slate-600">
-                        <span>Total Cash Collected:</span>
+                        <span>Cash Collected (Counter Sales):</span>
                         <span className="font-mono font-bold text-slate-800">
                           ₦{summary.total_cash_collected.toLocaleString()}
                         </span>
                       </div>
+                      {Boolean(summary.total_debt_collected_cash && summary.total_debt_collected_cash > 0) && (
+                        <div className="flex justify-between items-center text-emerald-700 font-medium">
+                          <span>Cash Debt Repayments Collected:</span>
+                          <span className="font-mono font-bold">
+                            +₦{summary.total_debt_collected_cash?.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {Boolean(summary.total_replenished_from_bank && summary.total_replenished_from_bank > 0) && (
+                        <div className="flex justify-between items-center text-blue-700 font-medium">
+                          <span>Float Replenished from Bank:</span>
+                          <span className="font-mono font-bold">
+                            +₦{summary.total_replenished_from_bank?.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center text-slate-600">
                         <span>Cash Refunds Deducted:</span>
                         <span className="font-mono font-bold text-rose-600">
@@ -421,11 +539,19 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-slate-600">
-                        <span>Transferred to Bank:</span>
-                        <span className="font-mono font-bold text-blue-600">
-                          ₦{summary.total_transferred_to_bank.toLocaleString()}
+                        <span>Deposited to Bank:</span>
+                        <span className="font-mono font-bold text-emerald-700">
+                          -₦{summary.total_transferred_to_bank.toLocaleString()}
                         </span>
                       </div>
+                      {Boolean(summary.total_discounts_applied && summary.total_discounts_applied > 0) && (
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>Discounts Authorized:</span>
+                          <span className="font-mono font-bold text-amber-600">
+                            -₦{summary.total_discounts_applied?.toLocaleString()} ({summary.discount_transactions_count || 0} sales)
+                          </span>
+                        </div>
+                      )}
                       {summary.last_activity_time && (
                         <div className="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-dashed border-slate-100">
                           <span>Last Cash Activity:</span>
@@ -435,25 +561,34 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                     </div>
                   </div>
 
-                  {/* Transfer Action Button */}
-                  <div className="mt-5 pt-3 border-t border-slate-100">
+                  {/* Transfer Action Buttons */}
+                  <div className="mt-5 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2">
+                    {/* Replenish Float */}
                     <button
                       type="button"
                       disabled={!cashierStaff}
-                      onClick={() => cashierStaff && handleOpenTransferModal(cashierStaff)}
-                      className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                      onClick={() => cashierStaff && handleOpenTransferModal(cashierStaff, 'BANK_TO_POS')}
+                      className="py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center space-x-1 transition-all bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 cursor-pointer"
+                      title="Inject cash float into this cashier's drawer"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Add Float</span>
+                    </button>
+
+                    {/* Clear to Bank */}
+                    <button
+                      type="button"
+                      disabled={!cashierStaff}
+                      onClick={() => cashierStaff && handleOpenTransferModal(cashierStaff, 'POS_TO_BANK')}
+                      className={`py-2 px-2 rounded-xl font-bold text-xs flex items-center justify-center space-x-1 transition-all cursor-pointer ${
                         isHoldingCash
                           ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs shadow-emerald-600/20 active:scale-98'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                       }`}
+                      title="Clear cash drawer to commercial bank account"
                     >
-                      <ArrowRightLeft className="w-3.5 h-3.5" />
-                      <span>
-                        {isHoldingCash 
-                          ? `Clear Cash to Bank (₦${summary.current_cash_in_hand.toLocaleString()})`
-                          : 'Transfer Partial / Add Deposit'
-                        }
-                      </span>
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      <span>Clear to Bank</span>
                     </button>
                   </div>
                 </div>
@@ -463,7 +598,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
         </div>
       )}
 
-      {/* TAB 2: CASH-TO-BANK TRANSFER HISTORY & AUDIT LOG */}
+      {/* TAB 2: CASH TRANSFER AUDIT LOG */}
       {activeTab === 'transfers' && (
         <div className="space-y-4">
           {/* Filter Bar */}
@@ -474,7 +609,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search transfer ref, cashier name, deposit slip, or bank account..."
+                placeholder="Search transfer ref, cashier, manager, slip, or bank..."
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-800"
               />
             </div>
@@ -497,9 +632,10 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                 type="button"
                 onClick={() => {
                   // Export CSV of transfers
-                  const headers = ['Transfer ID', 'Date & Time', 'Cashier', 'Manager Authorizer', 'Amount (₦)', 'Cash Before (₦)', 'Remaining Float (₦)', 'Destination Bank', 'Account Number', 'Deposit Slip', 'Notes'];
+                  const headers = ['Transfer ID', 'Type', 'Date & Time', 'Cashier', 'Manager Authorizer', 'Amount (₦)', 'Cash Before (₦)', 'Remaining Float (₦)', 'Bank', 'Account Number', 'Deposit Slip', 'Notes'];
                   const rows = filteredTransfers.map(t => [
                     t.transfer_id,
+                    t.transfer_type || 'POS_TO_BANK',
                     `"${t.date_time}"`,
                     `"${t.cashier_staff_name}"`,
                     `"${t.manager_staff_name}"`,
@@ -515,13 +651,13 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   const encodedUri = encodeURI(csvContent);
                   const link = document.createElement('a');
                   link.setAttribute('href', encodedUri);
-                  link.setAttribute('download', `cash_to_bank_transfers_${Date.now()}.csv`);
+                  link.setAttribute('download', `cash_transfers_${Date.now()}.csv`);
                   document.body.appendChild(link);
                   link.click();
                   document.body.removeChild(link);
                 }}
                 className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold cursor-pointer transition-colors"
-                title="Download CSV report of bank deposits"
+                title="Download CSV report of transfers"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Export CSV</span>
@@ -535,13 +671,13 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200 text-[10px]">
                   <tr>
-                    <th className="py-3 px-4">Transfer Ref & Date</th>
-                    <th className="py-3 px-4">Cashier (From)</th>
+                    <th className="py-3 px-4">Direction & Ref</th>
+                    <th className="py-3 px-4">Cashier</th>
                     <th className="py-3 px-4">Manager (Authorized)</th>
-                    <th className="py-3 px-4">Destination Bank Account</th>
-                    <th className="py-3 px-4">Deposit Slip / Ref</th>
-                    <th className="py-3 px-4 text-right">Amount Transferred</th>
-                    <th className="py-3 px-4 text-right">Remaining Float</th>
+                    <th className="py-3 px-4">Commercial Bank Account</th>
+                    <th className="py-3 px-4">Deposit / Slip Ref</th>
+                    <th className="py-3 px-4 text-right">Amount (₦)</th>
+                    <th className="py-3 px-4 text-right">Till Float After</th>
                     <th className="py-3 px-4">Mandatory Audit Note</th>
                     <th className="py-3 px-4 text-center">Voucher</th>
                   </tr>
@@ -550,67 +686,86 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   {filteredTransfers.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="py-12 text-center text-slate-400">
-                        No cash-to-bank transfers found matching filter.
+                        No cash transfers found matching the filter criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredTransfers.map(transfer => (
-                      <tr key={transfer.transfer_id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 whitespace-nowrap font-mono font-medium">
-                          <div className="text-slate-900 font-bold">{transfer.transfer_id}</div>
-                          <div className="text-[10px] text-slate-400">{transfer.date_time}</div>
-                        </td>
+                    filteredTransfers.map(transfer => {
+                      const isBankToPos = transfer.transfer_type === 'BANK_TO_POS';
 
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <div className="font-semibold text-slate-900">{transfer.cashier_staff_name}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">{transfer.cashier_staff_id}</div>
-                        </td>
+                      return (
+                        <tr key={transfer.transfer_id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-4 whitespace-nowrap font-mono font-medium">
+                            <div className="flex items-center space-x-1.5">
+                              {isBankToPos ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800 border border-blue-200 flex items-center space-x-1">
+                                  <ArrowDownLeft className="w-3 h-3" />
+                                  <span>FLOAT INJECT</span>
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
+                                  <ArrowUpRight className="w-3 h-3" />
+                                  <span>DEPOSIT OUT</span>
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-slate-900 font-bold mt-0.5">{transfer.transfer_id}</div>
+                            <div className="text-[10px] text-slate-400">{transfer.date_time}</div>
+                          </td>
 
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <div className="font-semibold text-slate-900 flex items-center space-x-1">
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            <span>{transfer.manager_staff_name}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">{transfer.manager_role} ({transfer.manager_staff_id})</div>
-                        </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="font-semibold text-slate-900">{transfer.cashier_staff_name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{transfer.cashier_staff_id}</div>
+                          </td>
 
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">{transfer.destination_bank_name}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">
-                            Acc: {transfer.destination_account_number}
-                          </div>
-                        </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="font-semibold text-slate-900 flex items-center space-x-1">
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <span>{transfer.manager_staff_name}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">{transfer.manager_role} ({transfer.manager_staff_id})</div>
+                          </td>
 
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                            {transfer.deposit_slip_number || 'N/A'}
-                          </span>
-                        </td>
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-900">{transfer.destination_bank_name}</div>
+                            <div className="text-[10px] text-slate-500 font-mono">
+                              Acc: {transfer.destination_account_number}
+                            </div>
+                          </td>
 
-                        <td className="py-3 px-4 whitespace-nowrap text-right font-mono font-bold text-sm text-emerald-700">
-                          ₦{transfer.amount_transferred.toLocaleString()}
-                        </td>
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                              {transfer.deposit_slip_number || 'N/A'}
+                            </span>
+                          </td>
 
-                        <td className="py-3 px-4 whitespace-nowrap text-right font-mono text-xs text-slate-600">
-                          ₦{transfer.cashier_cash_remaining.toLocaleString()}
-                        </td>
+                          <td className={`py-3 px-4 whitespace-nowrap text-right font-mono font-bold text-sm ${
+                            isBankToPos ? 'text-blue-700' : 'text-emerald-700'
+                          }`}>
+                            {isBankToPos ? '+' : '-'}₦{transfer.amount_transferred.toLocaleString()}
+                          </td>
 
-                        <td className="py-3 px-4 max-w-xs truncate" title={transfer.notes}>
-                          <span className="text-slate-600 italic">"{transfer.notes}"</span>
-                        </td>
+                          <td className="py-3 px-4 whitespace-nowrap text-right font-mono text-xs text-slate-600">
+                            ₦{transfer.cashier_cash_remaining.toLocaleString()}
+                          </td>
 
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedVoucher(transfer)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
-                            title="View / Print Cash Deposit Voucher"
-                          >
-                            <FileText className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                          <td className="py-3 px-4 max-w-xs truncate" title={transfer.notes}>
+                            <span className="text-slate-600 italic">&quot;{transfer.notes}&quot;</span>
+                          </td>
+
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedVoucher(transfer)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 transition-colors cursor-pointer"
+                              title="View / Print Transfer Voucher"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -619,7 +774,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
         </div>
       )}
 
-      {/* MODAL 1: FLEXIBLE CASH-TO-BANK TRANSFER MODAL */}
+      {/* MODAL 1: BIDIRECTIONAL CASH TRANSFER MODAL */}
       {isTransferModalOpen && targetCashier && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
@@ -627,12 +782,20 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
             {/* Modal Header */}
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center space-x-2.5">
-                <div className="p-2 rounded-xl bg-emerald-500 text-slate-950">
+                <div className={`p-2 rounded-xl text-slate-950 ${transferType === 'BANK_TO_POS' ? 'bg-blue-400' : 'bg-emerald-400'}`}>
                   <ArrowRightLeft className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base">Cash Transfer to Bank</h3>
-                  <p className="text-xs text-slate-400">Clear cashier cash drawer into commercial bank account</p>
+                  <h3 className="font-bold text-base">
+                    {transferType === 'BANK_TO_POS' 
+                      ? 'Replenish Float from Bank Treasury' 
+                      : 'Cash Transfer to Bank Account'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {transferType === 'BANK_TO_POS'
+                      ? 'Manager injects change float into cashier till'
+                      : 'Clear cashier cash drawer into commercial bank account'}
+                  </p>
                 </div>
               </div>
               <button
@@ -660,7 +823,13 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
 
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-xs text-left space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Transferred Amount:</span>
+                    <span className="text-slate-500">Operation Type:</span>
+                    <span className="font-bold text-slate-900">
+                      {transferSuccess.transfer_type === 'BANK_TO_POS' ? 'Float Replenishment' : 'Bank Deposit'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Amount:</span>
                     <span className="font-mono font-bold text-emerald-700 text-sm">
                       ₦{transferSuccess.amount_transferred.toLocaleString()}
                     </span>
@@ -670,23 +839,23 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                     <span className="font-semibold text-slate-800">{transferSuccess.cashier_staff_name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Remaining Cash in Hand:</span>
+                    <span className="text-slate-500">Cash in Till After:</span>
                     <span className="font-mono font-bold text-slate-800">
                       ₦{transferSuccess.cashier_cash_remaining.toLocaleString()}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Destination Bank:</span>
+                    <span className="text-slate-500">Bank Account:</span>
                     <span className="font-semibold text-slate-800">
                       {transferSuccess.destination_bank_name} ({transferSuccess.destination_account_number})
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Deposit Slip:</span>
+                    <span className="text-slate-500">Deposit / Slip Ref:</span>
                     <span className="font-mono text-slate-700">{transferSuccess.deposit_slip_number}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Authorizing Manager:</span>
+                    <span className="text-slate-500">Authorized By:</span>
                     <span className="font-semibold text-slate-800">{transferSuccess.manager_staff_name}</span>
                   </div>
                 </div>
@@ -701,7 +870,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                     className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>Print Handover Slip</span>
+                    <span>Print Voucher</span>
                   </button>
 
                   <button
@@ -724,10 +893,56 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   </div>
                 )}
 
+                {/* Transfer Direction Toggle */}
+                <div>
+                  <label className="font-bold text-slate-800 block mb-1.5">
+                    1. Select Transfer Direction:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTransferType('POS_TO_BANK');
+                        const summary = drawerSummaries.find(d => d.staff_id === targetCashier.staff_id);
+                        const cash = summary?.current_cash_in_hand || 0;
+                        setTransferAmount(cash > 0 ? cash.toString() : '');
+                        setTransferNotes(`Cash handover from ${targetCashier.staff_name} for bank deposit`);
+                        setDepositSlipNumber(`DEP-${Date.now().toString().slice(-6)}`);
+                      }}
+                      className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 font-bold text-xs transition-all ${
+                        transferType === 'POS_TO_BANK'
+                          ? 'bg-emerald-50 border-emerald-600 text-emerald-900 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                      <span>Till → Bank Deposit</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTransferType('BANK_TO_POS');
+                        setTransferAmount('10000');
+                        setTransferNotes(`Float replenishment for ${targetCashier.staff_name} till change`);
+                        setDepositSlipNumber(`FLT-${Date.now().toString().slice(-6)}`);
+                      }}
+                      className={`p-2.5 rounded-xl border flex items-center justify-center space-x-2 font-bold text-xs transition-all ${
+                        transferType === 'BANK_TO_POS'
+                          ? 'bg-blue-50 border-blue-600 text-blue-900 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <ArrowDownLeft className="w-4 h-4 text-blue-600" />
+                      <span>Bank → Till Float</span>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Cashier Selection & Current Cash In Hand */}
                 <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="font-bold text-slate-800">1. Select Cashier:</label>
+                    <label className="font-bold text-slate-800">2. Target Cashier Till:</label>
                     <select
                       value={targetCashier.staff_id}
                       onChange={(e) => {
@@ -735,7 +950,9 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                         if (c) {
                           setTargetCashier(c);
                           const s = drawerSummaries.find(d => d.staff_id === c.staff_id);
-                          setTransferAmount(s ? s.current_cash_in_hand.toString() : '');
+                          if (transferType === 'POS_TO_BANK') {
+                            setTransferAmount(s ? s.current_cash_in_hand.toString() : '');
+                          }
                         }
                       }}
                       className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 font-semibold text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -752,12 +969,14 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                     </select>
                   </div>
 
-                  {/* Cash in Hand Banner */}
+                  {/* Dynamic Cash in Hand Calculation Banner */}
                   {(() => {
                     const currentSummary = drawerSummaries.find(d => d.staff_id === targetCashier.staff_id);
                     const currentCash = currentSummary?.current_cash_in_hand || 0;
                     const parsedTransfer = parseFloat(transferAmount) || 0;
-                    const remaining = Math.max(0, currentCash - parsedTransfer);
+                    const resultingCash = transferType === 'BANK_TO_POS'
+                      ? currentCash + parsedTransfer
+                      : Math.max(0, currentCash - parsedTransfer);
 
                     return (
                       <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-center">
@@ -767,20 +986,20 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                             ₦{currentCash.toLocaleString()}
                           </div>
                         </div>
-                        <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200">
-                          <div className="text-[10px] text-emerald-800 font-bold">Transferring</div>
-                          <div className="font-mono font-bold text-emerald-700 mt-0.5">
-                            -₦{parsedTransfer.toLocaleString()}
+                        <div className={`p-2 rounded-lg border ${
+                          transferType === 'BANK_TO_POS' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        }`}>
+                          <div className="text-[10px] font-bold">
+                            {transferType === 'BANK_TO_POS' ? 'Injecting Float' : 'Depositing Out'}
+                          </div>
+                          <div className="font-mono font-bold mt-0.5">
+                            {transferType === 'BANK_TO_POS' ? '+' : '-'}₦{parsedTransfer.toLocaleString()}
                           </div>
                         </div>
-                        <div className={`p-2 rounded-lg border ${
-                          remaining > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-100 border-slate-200'
-                        }`}>
-                          <div className="text-[10px] text-slate-500">Float Left</div>
-                          <div className={`font-mono font-bold mt-0.5 ${
-                            remaining > 0 ? 'text-amber-800' : 'text-slate-500'
-                          }`}>
-                            ₦{remaining.toLocaleString()}
+                        <div className="p-2 rounded-lg bg-slate-100 border border-slate-200">
+                          <div className="text-[10px] text-slate-500">Till After</div>
+                          <div className="font-mono font-bold text-slate-800 mt-0.5">
+                            ₦{resultingCash.toLocaleString()}
                           </div>
                         </div>
                       </div>
@@ -788,13 +1007,15 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   })()}
                 </div>
 
-                {/* Amount to Transfer (Partial or Full) */}
+                {/* Amount to Transfer */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="font-bold text-slate-800">
-                      2. Transfer Amount (₦) *
+                      3. Transfer Amount (₦) *
                     </label>
-                    <span className="text-[10px] text-slate-400">Flexible Partial or Full</span>
+                    <span className="text-[10px] text-slate-400">
+                      {transferType === 'BANK_TO_POS' ? 'Replenishment Amount' : 'Flexible Partial or Full'}
+                    </span>
                   </div>
 
                   <div className="relative">
@@ -814,42 +1035,77 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
 
                   {/* Preset Shortcuts */}
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => handleApplyPresetTransfer('all')}
-                      className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-200 transition-colors"
-                    >
-                      Clear Full Amount
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyPresetTransfer('keep5k')}
-                      className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
-                    >
-                      Keep ₦5,000 Float
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyPresetTransfer('keep10k')}
-                      className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
-                    >
-                      Keep ₦10,000 Float
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApplyPresetTransfer('keep20k')}
-                      className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
-                    >
-                      Keep ₦20,000 Float
-                    </button>
+                    {transferType === 'POS_TO_BANK' ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('all')}
+                          className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-[10px] border border-emerald-200 transition-colors"
+                        >
+                          Clear Full Amount
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('keep5k')}
+                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
+                        >
+                          Keep ₦5k Float
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('keep10k')}
+                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
+                        >
+                          Keep ₦10k Float
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('keep20k')}
+                          className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] transition-colors"
+                        >
+                          Keep ₦20k Float
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('add5k')}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[10px] border border-blue-200 transition-colors"
+                        >
+                          +₦5,000 Float
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('add10k')}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[10px] border border-blue-200 transition-colors"
+                        >
+                          +₦10,000 Float
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('add20k')}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[10px] border border-blue-200 transition-colors"
+                        >
+                          +₦20,000 Float
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyPresetTransfer('add50k')}
+                          className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold text-[10px] border border-blue-200 transition-colors"
+                        >
+                          +₦50,000 Float
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* Destination Bank Account */}
+                {/* Bank Account Selection */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="font-bold text-slate-800">
-                      3. Destination Commercial Bank Account *
+                      4. {transferType === 'BANK_TO_POS' ? 'Source Bank / Safe Account' : 'Destination Bank Account'} *
                     </label>
                     {onOpenPosSetup && (
                       <button
@@ -860,7 +1116,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                         }}
                         className="text-[10px] text-emerald-600 hover:underline font-semibold"
                       >
-                        + Configure Bank Accounts
+                        + Configure Accounts
                       </button>
                     )}
                   </div>
@@ -877,16 +1133,16 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   </select>
                 </div>
 
-                {/* Deposit Slip / Reference Number */}
+                {/* Slip Reference Number */}
                 <div className="space-y-1.5">
                   <label className="font-bold text-slate-800">
-                    4. Bank Deposit Slip / Ref ID (Optional)
+                    5. Deposit / Teller Slip / Ref ID (Optional)
                   </label>
                   <input
                     type="text"
                     value={depositSlipNumber}
                     onChange={(e) => setDepositSlipNumber(e.target.value)}
-                    placeholder="e.g. GTB-DEP-991201 or teller reference"
+                    placeholder="e.g. GTB-DEP-991201 or treasury voucher ref"
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
@@ -894,13 +1150,13 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                 {/* Mandatory Audit Note */}
                 <div className="space-y-1.5">
                   <label className="font-bold text-slate-800">
-                    5. Mandatory Audit Note / Reason *
+                    6. Mandatory Audit Note / Reason *
                   </label>
                   <textarea
                     rows={2}
                     value={transferNotes}
                     onChange={(e) => setTransferNotes(e.target.value)}
-                    placeholder="e.g. End of morning shift cash handover to bank deposit box. Left ₦5,000 float for afternoon cashier."
+                    placeholder="e.g. Morning cash float replenishment from safe / end of shift cash handover to bank."
                     className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
                   />
                 </div>
@@ -942,10 +1198,14 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
 
                   <button
                     type="submit"
-                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all shadow-md shadow-emerald-600/20 active:scale-98 cursor-pointer flex items-center justify-center space-x-1.5"
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-white font-bold transition-all shadow-md active:scale-98 cursor-pointer flex items-center justify-center space-x-1.5 ${
+                      transferType === 'BANK_TO_POS' 
+                        ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' 
+                        : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
+                    }`}
                   >
                     <ArrowRightLeft className="w-4 h-4" />
-                    <span>Authorize Transfer</span>
+                    <span>Authorize {transferType === 'BANK_TO_POS' ? 'Float Injection' : 'Deposit'}</span>
                   </button>
                 </div>
               </form>
@@ -955,7 +1215,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
         </div>
       )}
 
-      {/* MODAL 2: PRINTABLE CASH DEPOSIT VOUCHER / SLIP */}
+      {/* MODAL 2: PRINTABLE CASH TRANSFER VOUCHER / SLIP */}
       {selectedVoucher && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
@@ -963,7 +1223,11 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
             <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <FileText className="w-5 h-5 text-emerald-400" />
-                <span className="font-bold text-sm">Cash Handover & Bank Deposit Voucher</span>
+                <span className="font-bold text-sm">
+                  {selectedVoucher.transfer_type === 'BANK_TO_POS'
+                    ? 'Float Replenishment Voucher'
+                    : 'Cash Handover & Bank Deposit Voucher'}
+                </span>
               </div>
               <button
                 type="button"
@@ -974,7 +1238,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               </button>
             </div>
 
-            {/* Voucher Body (Printable thermal or voucher format) */}
+            {/* Voucher Body */}
             <div id="cash-handover-voucher" className="p-6 space-y-4 font-mono text-xs text-slate-800">
               
               {/* Header */}
@@ -982,8 +1246,10 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                 <div className="font-black text-base text-slate-950 tracking-tight">
                   KIID FROM DREAM SEAFOODS LTD
                 </div>
-                <div className="text-[10px] text-slate-500">
-                  CASH-TO-BANK TREASURY HANDOVER VOUCHER
+                <div className="text-[10px] text-slate-500 uppercase font-bold">
+                  {selectedVoucher.transfer_type === 'BANK_TO_POS'
+                    ? 'BANK-TO-DRAWER FLOAT REPLENISHMENT VOUCHER'
+                    : 'CASH-TO-BANK TREASURY HANDOVER VOUCHER'}
                 </div>
                 <div className="text-[11px] font-bold text-emerald-700">
                   {selectedVoucher.transfer_id}
@@ -994,11 +1260,19 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               </div>
 
               {/* Amount Transferred Highlight */}
-              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 text-center">
-                <div className="text-[10px] text-emerald-800 uppercase font-bold">
-                  AMOUNT TRANSFERRED TO BANK
+              <div className={`p-3 rounded-xl border text-center ${
+                selectedVoucher.transfer_type === 'BANK_TO_POS'
+                  ? 'bg-blue-50 border-blue-200 text-blue-900'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              }`}>
+                <div className="text-[10px] uppercase font-bold">
+                  {selectedVoucher.transfer_type === 'BANK_TO_POS'
+                    ? 'AMOUNT INJECTED INTO CASH DRAWER (FLOAT)'
+                    : 'AMOUNT TRANSFERRED TO BANK'}
                 </div>
-                <div className="text-2xl font-black text-emerald-700 mt-0.5">
+                <div className={`text-2xl font-black mt-0.5 ${
+                  selectedVoucher.transfer_type === 'BANK_TO_POS' ? 'text-blue-700' : 'text-emerald-700'
+                }`}>
                   ₦{selectedVoucher.amount_transferred.toLocaleString()}
                 </div>
               </div>
@@ -1006,7 +1280,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               {/* Detailed Breakdown */}
               <div className="space-y-1.5 border-b border-dashed border-slate-300 pb-3 text-[11px]">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Cashier Turning In:</span>
+                  <span className="text-slate-500">Cashier Involved:</span>
                   <span className="font-bold text-slate-900">{selectedVoucher.cashier_staff_name} ({selectedVoucher.cashier_staff_id})</span>
                 </div>
                 <div className="flex justify-between">
@@ -1014,28 +1288,31 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
                   <span className="font-bold text-slate-900">{selectedVoucher.manager_staff_name} ({selectedVoucher.manager_staff_id})</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Cashier Till Before:</span>
+                  <span className="text-slate-500">Till Before:</span>
                   <span>₦{selectedVoucher.cashier_cash_before.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between font-bold text-emerald-700">
-                  <span>Cash Moved Out:</span>
-                  <span>-₦{selectedVoucher.amount_transferred.toLocaleString()}</span>
+                <div className={`flex justify-between font-bold ${
+                  selectedVoucher.transfer_type === 'BANK_TO_POS' ? 'text-blue-700' : 'text-emerald-700'
+                }`}>
+                  <span>{selectedVoucher.transfer_type === 'BANK_TO_POS' ? 'Float Injected:' : 'Cash Moved Out:'}</span>
+                  <span>{selectedVoucher.transfer_type === 'BANK_TO_POS' ? '+' : '-'}₦{selectedVoucher.amount_transferred.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between font-bold text-amber-800">
-                  <span>Remaining Float With Cashier:</span>
+                <div className="flex justify-between font-bold text-slate-900">
+                  <span>Till Balance After:</span>
                   <span>₦{selectedVoucher.cashier_cash_remaining.toLocaleString()}</span>
                 </div>
               </div>
 
-              {/* Destination Bank Account */}
+              {/* Commercial Bank Account */}
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-[10px] space-y-1">
-                <div className="font-bold text-slate-700 uppercase">DESTINATION BANK:</div>
+                <div className="font-bold text-slate-700 uppercase">
+                  {selectedVoucher.transfer_type === 'BANK_TO_POS' ? 'SOURCE BANK TREASURY:' : 'DESTINATION COMMERCIAL BANK:'}
+                </div>
                 <div className="font-bold text-slate-900">{selectedVoucher.destination_bank_name}</div>
                 <div>Account Number: <span className="font-bold">{selectedVoucher.destination_account_number}</span></div>
-                <div>Account Name: {selectedVoucher.destination_account_name}</div>
                 {selectedVoucher.deposit_slip_number && (
                   <div className="pt-1 border-t border-slate-200 font-semibold text-slate-800">
-                    Deposit Slip / Ref: {selectedVoucher.deposit_slip_number}
+                    Slip / Reference: {selectedVoucher.deposit_slip_number}
                   </div>
                 )}
               </div>
@@ -1043,7 +1320,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               {/* Note */}
               <div className="text-[11px] text-slate-600 italic bg-amber-50/50 p-2 rounded border border-amber-200">
                 <span className="font-bold not-italic text-amber-900">Audit Note: </span>
-                "{selectedVoucher.notes}"
+                &quot;{selectedVoucher.notes}&quot;
               </div>
 
               {/* Signatures */}

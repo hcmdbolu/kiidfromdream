@@ -9,7 +9,7 @@ import {
   ShieldAlert, 
   KeyRound, 
   User, 
-  Fish, 
+  Store, 
   HelpCircle, 
   Delete,
   CheckCircle2,
@@ -449,7 +449,7 @@ export const LoginAuthModal: React.FC<LoginAuthModalProps> = ({
                 </div>
               ) : (
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-emerald-500/25 mb-3 tracking-wider">
-                  <Fish className="w-7 h-7" />
+                  <Store className="w-7 h-7" />
                 </div>
               )}
 

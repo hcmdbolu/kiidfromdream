@@ -1,6 +1,6 @@
 import { UserRole } from '../types';
 
-export type Permission = 
+export type Permission =
   | 'CAN_POS_SALE'
   | 'CAN_RECEIVE_GOODS'
   | 'CAN_CYCLE_COUNT'
@@ -10,24 +10,29 @@ export type Permission =
   | 'CAN_CANCEL_PO'
   | 'CAN_MANAGE_SUPPLIERS'
   | 'CAN_MANAGE_PRODUCTS'
+  | 'CAN_MANAGE_CATEGORIES'
   | 'CAN_APPLY_DISCOUNT'
   | 'CAN_VIEW_INVENTORY'
   | 'CAN_VIEW_REPORTS'
   | 'CAN_VIEW_AUDIT_LOG'
   | 'CAN_MANAGE_STAFF'
   | 'CAN_SYSTEM_CONFIG'
+  | 'CAN_BACKUP_RESTORE'
   | 'CAN_FACTORY_RESET'
   | 'CAN_MANAGE_ADMINS';
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   Cashier: [
     'CAN_POS_SALE',
+    'CAN_BACKUP_RESTORE',
   ],
   Supervisor: [
     'CAN_POS_SALE',
     'CAN_RECEIVE_GOODS',
     'CAN_CYCLE_COUNT',
     'CAN_VIEW_INVENTORY',
+    'CAN_MANAGE_CATEGORIES',
+    'CAN_BACKUP_RESTORE',
   ],
   Manager: [
     'CAN_POS_SALE',
@@ -36,6 +41,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_REFUND',
     'CAN_VIEW_INVENTORY',
     'CAN_MANAGE_PRODUCTS',
+    'CAN_MANAGE_CATEGORIES',
     'CAN_APPLY_DISCOUNT',
     'CAN_CREATE_PO',
     'CAN_CANCEL_PO',
@@ -43,6 +49,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_MANAGE_SUPPLIERS',
     'CAN_VIEW_REPORTS',
     'CAN_VIEW_AUDIT_LOG',
+    'CAN_BACKUP_RESTORE',
   ],
   Admin: [
     'CAN_POS_SALE',
@@ -51,6 +58,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_REFUND',
     'CAN_VIEW_INVENTORY',
     'CAN_MANAGE_PRODUCTS',
+    'CAN_MANAGE_CATEGORIES',
     'CAN_APPLY_DISCOUNT',
     'CAN_CREATE_PO',
     'CAN_CANCEL_PO',
@@ -60,6 +68,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_VIEW_AUDIT_LOG',
     'CAN_MANAGE_STAFF',
     'CAN_SYSTEM_CONFIG',
+    'CAN_BACKUP_RESTORE',
   ],
   'Super Admin': [
     'CAN_POS_SALE',
@@ -68,6 +77,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_REFUND',
     'CAN_VIEW_INVENTORY',
     'CAN_MANAGE_PRODUCTS',
+    'CAN_MANAGE_CATEGORIES',
     'CAN_APPLY_DISCOUNT',
     'CAN_CREATE_PO',
     'CAN_CANCEL_PO',
@@ -77,6 +87,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_VIEW_AUDIT_LOG',
     'CAN_MANAGE_STAFF',
     'CAN_SYSTEM_CONFIG',
+    'CAN_BACKUP_RESTORE',
     'CAN_FACTORY_RESET',
     'CAN_MANAGE_ADMINS',
   ],

@@ -181,12 +181,12 @@ export const ReceiptBrandingManager: React.FC = () => {
 
   // Sample receipt data for live preview
   const sampleItems = [
-    { name: 'Fresh Catfish (Live)', sn: 'FISH-00045', qty: '4.50 KG', unitPrice: 3200, total: 14400 },
-    { name: 'Norwegian Salmon Cut', sn: 'FISH-00048', qty: '2.00 KG', unitPrice: 7500, total: 15000 },
+    { name: 'Fresh Milk 1L', sn: 'ITEM-00045', qty: '4.00 PCS', unitPrice: 3200, total: 12800 },
+    { name: 'Basmati Rice 5kg', sn: 'ITEM-00048', qty: '2.00 PACK', unitPrice: 7500, total: 15000 },
   ];
-  const sampleSubtotal = 29400;
+  const sampleSubtotal = 27800;
   const sampleDiscount = 1400;
-  const sampleTotal = 28000;
+  const sampleTotal = 26400;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -303,7 +303,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="text"
                   value={form.tagline}
                   onChange={e => setForm({ ...form, tagline: e.target.value })}
-                  placeholder="e.g. Premium Cold Room & Seafood Terminal"
+                  placeholder="e.g. Retail & Wholesale Hub"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
@@ -316,7 +316,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="text"
                   value={form.address_line1}
                   onChange={e => setForm({ ...form, address_line1: e.target.value })}
-                  placeholder="e.g. Shop 14, Lekki Fish Market Phase 1"
+                  placeholder="e.g. Suite 14, Commercial Plaza Phase 1"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
@@ -343,7 +343,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="text"
                   value={form.phone_numbers}
                   onChange={e => setForm({ ...form, phone_numbers: e.target.value })}
-                  placeholder="e.g. +234 803 123 4567 / 0800-FISH-POS"
+                  placeholder="e.g. +234 803 123 4567 / 0800-STORE-POS"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
@@ -564,7 +564,7 @@ export const ReceiptBrandingManager: React.FC = () => {
             </div>
           </div>
 
-          {/* Section 4: Footer Messages & Cold-Chain Return Policies */}
+          {/* Section 4: Footer Messages & Return Policies */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/80 space-y-4">
             <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
               <FileText className="w-4 h-4 text-emerald-600" />
@@ -589,14 +589,14 @@ export const ReceiptBrandingManager: React.FC = () => {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                  <span>Cold-Chain Return & Guarantee Policy</span>
+                  <span>Return & Guarantee Policy</span>
                   <span className="text-[10px] text-slate-400 font-normal">Printed in small font at bottom</span>
                 </label>
                 <textarea
                   rows={2}
                   value={form.footer_policy_notice}
                   onChange={e => setForm({ ...form, footer_policy_notice: e.target.value })}
-                  placeholder="e.g. Fresh fish guaranteed. Inspect fish before cold-chain handover. No returns on thawed frozen goods."
+                  placeholder="e.g. Goods sold in good condition cannot be returned. Retain receipt for warranty or exchange inquiries within 24 hours."
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
                 />
               </div>
@@ -609,7 +609,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   rows={2}
                   value={form.custom_notes || ''}
                   onChange={e => setForm({ ...form, custom_notes: e.target.value })}
-                  placeholder="e.g. For wholesale freezer bookings and delivery inquiries, contact our customer desk."
+                  placeholder="e.g. For bulk bookings and delivery inquiries, contact our customer desk."
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all resize-none"
                 />
               </div>
@@ -659,109 +659,94 @@ export const ReceiptBrandingManager: React.FC = () => {
             {/* The Physical Receipt Paper Roll */}
             <div
               id="printable-receipt"
-              className={`bg-[#fafafa] font-mono text-[11px] text-slate-800 shadow-xl border border-slate-300 transition-all duration-300 ${
-                form.paper_width === '58mm' ? 'w-[270px] p-4 receipt-58mm' : 'w-[340px] p-5 receipt-80mm'
+              className={`bg-white font-mono text-slate-900 shadow-xl border border-slate-300 transition-all duration-300 ${
+                form.paper_width === '58mm' ? 'w-[235px] px-2.5 py-3 text-[10px] space-y-2 receipt-58mm' : 'w-[280px] px-3.5 py-3 text-[10.5px] space-y-2.5 receipt-80mm'
               }`}
               style={{
                 boxShadow: '0 8px 30px rgba(0, 0, 0, 0.12)',
               }}
             >
               {/* Paper Top Perforated Serration Simulation */}
-              <div className="flex justify-between items-center pb-2 mb-2 border-b border-dashed border-slate-300">
-                <span className="text-[9px] text-slate-400 uppercase tracking-widest mx-auto">
+              <div className="flex justify-between items-center pb-1.5 mb-1.5 border-b border-dashed border-slate-300">
+                <span className="text-[8px] text-slate-400 uppercase tracking-widest mx-auto">
                   ••• THERMAL TAPE CUT •••
                 </span>
               </div>
 
               {/* Logo & Header */}
-              <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-300">
+              <div className="text-center space-y-0.5 pb-2 border-b border-dashed border-slate-300">
                 {form.show_logo && form.logo_base64 && (
-                  <div className="flex justify-center mb-2">
+                  <div className="flex justify-center mb-1">
                     <img
                       src={form.logo_base64}
                       alt={form.business_name}
-                      className="max-h-16 max-w-[200px] object-contain filter grayscale contrast-125"
+                      className="max-h-11 max-w-[150px] object-contain filter grayscale contrast-125"
                     />
                   </div>
                 )}
                 
-                <h2 className="text-sm font-black tracking-wider text-slate-950 uppercase leading-snug">
+                <h2 className="text-[12.5px] font-black tracking-wide text-slate-950 uppercase leading-snug">
                   {form.business_name || 'KIID FROM DREAM LTD'}
                 </h2>
 
                 {form.tagline && (
-                  <p className="text-[9px] text-slate-600 uppercase font-semibold">
+                  <p className="text-[9px] text-slate-600 uppercase font-semibold leading-tight">
                     {form.tagline}
                   </p>
                 )}
 
-                {form.address_line1 && (
-                  <p className="text-[9px] text-slate-500">
-                    {form.address_line1}
-                  </p>
-                )}
-
-                {form.address_line2 && (
-                  <p className="text-[9px] text-slate-500">
-                    {form.address_line2}
-                  </p>
-                )}
-
-                {form.phone_numbers && (
-                  <p className="text-[9px] text-slate-500">
-                    Tel: {form.phone_numbers}
-                  </p>
-                )}
-
-                {form.show_tax_details && form.tax_or_cac_number && (
-                  <p className="text-[8px] text-slate-400 font-semibold tracking-wider pt-0.5">
-                    {form.tax_or_cac_number}
-                  </p>
-                )}
+                <div className="text-[8.5px] text-slate-500 leading-tight space-y-0.5 pt-0.5">
+                  {form.address_line1 && <p>{form.address_line1}</p>}
+                  {form.address_line2 && <p>{form.address_line2}</p>}
+                  {form.phone_numbers && <p className="font-semibold text-slate-600">Tel: {form.phone_numbers}</p>}
+                  {form.show_tax_details && form.tax_or_cac_number && (
+                    <p className="text-slate-400 font-mono tracking-wider pt-0.5">{form.tax_or_cac_number}</p>
+                  )}
+                </div>
               </div>
 
               {/* Transaction Metadata */}
-              <div className="text-[10px] space-y-0.5 py-2 border-b border-dashed border-slate-300">
+              <div className="text-[9.5px] space-y-0.5 py-1.5 border-b border-dashed border-slate-300">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Txn:</span>
-                  <span className="font-bold text-slate-900">TXN-SAMPLE-001</span>
+                  <span className="font-bold text-slate-950 font-mono">TXN-SAMPLE-001</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Date:</span>
-                  <span>{new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="text-slate-800">{new Date().toLocaleDateString('en-GB')} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 {form.show_cashier_name && (
                   <div className="flex justify-between">
                     <span className="text-slate-500">Cashier:</span>
-                    <span>{activeStaff.staff_name} ({activeStaff.staff_id})</span>
+                    <span className="text-slate-800">{activeStaff.staff_name} ({activeStaff.staff_id})</span>
                   </div>
                 )}
                 <div className="flex justify-between">
                   <span className="text-slate-500">Customer:</span>
-                  <span className="font-bold text-slate-800">Walk-in Customer</span>
+                  <span className="font-bold text-slate-900">Walk-in Customer</span>
                 </div>
               </div>
 
               {/* Items Table */}
-              <div className="py-2 border-b border-dashed border-slate-300">
-                <div className="flex justify-between font-bold text-[9px] text-slate-500 pb-1 border-b border-slate-200">
-                  <span className="w-1/2">ITEM</span>
-                  <span className="w-1/4 text-center">QTY</span>
-                  <span className="w-1/4 text-right">TOTAL</span>
+              <div className="py-1.5 border-b border-dashed border-slate-300">
+                <div className="flex justify-between font-bold text-[9px] text-slate-500 pb-1 border-b border-slate-200 uppercase tracking-wider">
+                  <span className="w-[52%]">ITEM</span>
+                  <span className="w-[20%] text-center">QTY</span>
+                  <span className="w-[28%] text-right">TOTAL</span>
                 </div>
 
-                <div className="pt-2 space-y-2">
+                <div className="pt-1.5 space-y-1">
                   {sampleItems.map((item, idx) => (
                     <div key={idx} className="space-y-0.5">
-                      <div className="flex justify-between font-semibold">
-                        <span className="w-1/2 truncate font-bold text-slate-900">{item.name}</span>
-                        <span className="w-1/4 text-center text-slate-600">{item.qty}</span>
-                        <span className="w-1/4 text-right font-bold text-slate-900">
+                      <div className="flex justify-between items-baseline font-medium text-[10px]">
+                        <span className="w-[52%] truncate font-bold text-slate-950">{item.name}</span>
+                        <span className="w-[20%] text-center font-semibold text-slate-700">{item.qty}</span>
+                        <span className="w-[28%] text-right font-black font-mono text-slate-950">
                           ₦{item.total.toLocaleString()}
                         </span>
                       </div>
-                      <div className="text-[9px] text-slate-400">
-                        {item.sn} @ ₦{item.unitPrice.toLocaleString()}
+                      <div className="text-[8.5px] text-slate-500 pl-0.5">
+                        {item.sn} • ₦{item.unitPrice.toLocaleString()}
                       </div>
                     </div>
                   ))}
@@ -769,39 +754,39 @@ export const ReceiptBrandingManager: React.FC = () => {
               </div>
 
               {/* Totals & Payments */}
-              <div className="space-y-1 text-[10px] py-2 border-b border-dashed border-slate-300">
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Subtotal:</span>
-                  <span className="font-bold">₦{sampleSubtotal.toLocaleString()}</span>
+              <div className="space-y-1 text-[10px] py-1.5 border-b border-dashed border-slate-300">
+                <div className="flex justify-between text-slate-700">
+                  <span>Subtotal:</span>
+                  <span className="font-bold font-mono text-slate-900">₦{sampleSubtotal.toLocaleString()}</span>
                 </div>
 
-                <div className="flex justify-between text-emerald-700 font-semibold">
+                <div className="flex justify-between text-emerald-700 font-bold">
                   <span>VIP Customer Discount:</span>
-                  <span>-₦{sampleDiscount.toLocaleString()}</span>
+                  <span className="font-mono">-₦{sampleDiscount.toLocaleString()}</span>
                 </div>
 
-                <div className="flex justify-between text-xs font-extrabold text-slate-950 pt-1 border-t border-slate-300">
+                <div className="flex justify-between text-[12.5px] font-black text-slate-950 pt-1 border-t border-slate-300">
                   <span>TOTAL PAID:</span>
-                  <span>₦{sampleTotal.toLocaleString()}</span>
+                  <span className="font-mono">₦{sampleTotal.toLocaleString()}</span>
                 </div>
 
-                <div className="bg-slate-100/90 p-1.5 rounded text-[9px] space-y-0.5 mt-1 border border-slate-200">
-                  <div className="flex justify-between text-slate-700 font-medium">
+                <div className="bg-slate-50 p-1.5 rounded text-[9px] space-y-0.5 mt-1 border border-slate-200">
+                  <div className="flex justify-between text-slate-700">
                     <span>• Cash Payment:</span>
-                    <span className="font-bold">₦15,000</span>
+                    <span className="font-bold font-mono">₦15,000</span>
                   </div>
-                  <div className="flex justify-between text-slate-700 font-medium">
+                  <div className="flex justify-between text-slate-700">
                     <span>• POS Split (Moniepoint):</span>
-                    <span className="font-bold">₦13,000</span>
+                    <span className="font-bold font-mono">₦13,000</span>
                   </div>
                 </div>
               </div>
 
               {/* Barcode & Footer */}
-              <div className="text-center pt-2 space-y-1.5">
+              <div className="text-center pt-1 space-y-1">
                 {form.show_barcode && (
-                  <div className="space-y-1">
-                    <div className="flex justify-center items-center h-7 space-x-1 px-4">
+                  <div className="space-y-0.5">
+                    <div className="flex justify-center items-center h-5 space-x-0.5 px-3">
                       <div className="w-1 h-full bg-slate-900" />
                       <div className="w-0.5 h-full bg-slate-900" />
                       <div className="w-1.5 h-full bg-slate-900" />
@@ -823,7 +808,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                 )}
 
                 {form.footer_thank_you && (
-                  <p className="text-[9px] font-bold text-slate-800">
+                  <p className="text-[9.5px] font-bold text-slate-800">
                     {form.footer_thank_you}
                   </p>
                 )}

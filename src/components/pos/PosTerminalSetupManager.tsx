@@ -58,6 +58,7 @@ export const PosTerminalSetupManager: React.FC = () => {
     updatePosTerminal, 
     deletePosTerminal, 
     sales, 
+    customerDebtRepayments,
     activeStaff 
   } = usePos();
 
@@ -108,8 +109,17 @@ export const PosTerminalSetupManager: React.FC = () => {
       }
     });
 
+    // Customer debt repayments collected via POS or Bank Transfer
+    customerDebtRepayments?.forEach(repay => {
+      const targetId = repay.pos_terminal_id || repay.bank_account_id;
+      if (targetId && stats[targetId]) {
+        stats[targetId].count += 1;
+        stats[targetId].totalVolume += Number(repay.amount_paid) || 0;
+      }
+    });
+
     return stats;
-  }, [posTerminals, sales]);
+  }, [posTerminals, sales, customerDebtRepayments]);
 
   // Aggregate stats
   const totalPosCount = posTerminals.filter(t => t.type === 'POS_TERMINAL').length;

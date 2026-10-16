@@ -29,7 +29,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   },
   inventory: {
     title: 'Inventory & Stock Management',
-    subtitle: 'Real-time cold-room stock levels, batch expiries, reorder thresholds, and cycle counts.',
+    subtitle: 'Real-time inventory levels, batch expiries, reorder thresholds, and cycle counts.',
   },
   sales: {
     title: 'Sales History & Void Ledger',
@@ -41,7 +41,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   },
   suppliers: {
     title: 'Suppliers & Purchase Orders',
-    subtitle: 'Fish farms, vessel vendors, receiving goods inspections, and supply chain tracking.',
+    subtitle: 'Vendors, suppliers, receiving goods inspections, and supply chain tracking.',
   },
   reports: {
     title: 'Executive Financial & P&L Reports',
@@ -50,6 +50,10 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   audit: {
     title: 'Cryptographic Audit Trail Ledger',
     subtitle: 'SHA-256 tamper-evident system logs, security overrides, and operational event history.',
+  },
+  treasury: {
+    title: 'Cash Drawer & Treasury / Bank Management',
+    subtitle: 'Unified cash till management, bank accounts, wireless POS terminals, and bidirectional fund transfers.',
   },
   reconciliation: {
     title: 'Cash Drawer Reconciliation & Bank Treasury',
@@ -62,6 +66,10 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
   staff: {
     title: 'Staff & Role Security Administration',
     subtitle: 'Standard enterprise RBAC, staff credentials, security PINs, and shift scheduling.',
+  },
+  cycle_count: {
+    title: 'Physical Stock Cycle Count & Variance Audit',
+    subtitle: 'Periodic physical inventory auditing, scale calibration, and immediate stock reconciliation ledger.',
   },
   receipt_settings: {
     title: 'Receipt & Branding Customization',
@@ -113,7 +121,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   const meta = TAB_TITLES[currentTab] || {
     title: 'KiidFromDream POS',
-    subtitle: 'Fish & Seafood Counter Management',
+    subtitle: 'Retail Counter & Point of Sale Management',
   };
 
   const roleBadge = ROLE_BADGES[activeStaff.role] || ROLE_BADGES.Cashier;

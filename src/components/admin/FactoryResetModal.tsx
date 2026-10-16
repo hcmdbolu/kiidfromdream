@@ -187,9 +187,11 @@ export const FactoryResetModal: React.FC<FactoryResetModalProps> = ({
                   </div>
                   <ul className="text-slate-400 space-y-1 pl-1 font-mono text-[10px]">
                     <li>❌ All Sales History & Receipts</li>
-                    <li>❌ All Products & Cold Room Stock</li>
+                    <li>❌ Custom Receipt Branding & Logos</li>
+                    <li>❌ All Products & Inventory Stock</li>
                     <li>❌ All Customer Records & Discounts</li>
                     <li>❌ All Purchase Orders & Deliveries</li>
+                    <li>❌ All Staff Records & Cashier Accounts</li>
                     <li>❌ All Cash Transfer & Treasury Logs</li>
                     <li>❌ All Audit Trail & Activity Records</li>
                     <li>❌ Browser LocalStorage & Cache</li>
@@ -202,11 +204,9 @@ export const FactoryResetModal: React.FC<FactoryResetModalProps> = ({
                     <span>Safely Preserved:</span>
                   </div>
                   <ul className="text-slate-300 space-y-1 pl-1 font-mono text-[10px]">
-                    <li>✅ Core Super Admin (Boluwatife)</li>
-                    <li>✅ Administrator Account (Alex Abiri)</li>
+                    <li>✅ Sole Super Admin (Boluwatife)</li>
                     <li>✅ Configured POS Terminals</li>
                     <li>✅ Settlement Bank Accounts</li>
-                    <li>✅ Active Operator Session</li>
                     <li>✅ System Hardware Settings</li>
                   </ul>
                 </div>

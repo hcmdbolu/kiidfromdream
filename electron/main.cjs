@@ -18,23 +18,20 @@ if (!fs.existsSync(appDataDir)) {
 }
 process.env.POS_DATA_DIR = appDataDir;
 
-// Copy initial seed data if pos_database.db or pos_database.json does not yet exist in AppData
+// Copy initial seed template if database does not yet exist in AppData
 const userDbPath = path.join(appDataDir, 'pos_database.db');
 const userJsonPath = path.join(appDataDir, 'pos_database.json');
 if (!fs.existsSync(userDbPath) && !fs.existsSync(userJsonPath)) {
-  const defaultDbPath = path.join(__dirname, '..', 'data', 'pos_database.db');
-  const defaultJsonPath = path.join(__dirname, '..', 'data', 'pos_database.json');
-  if (fs.existsSync(defaultDbPath)) {
-    try {
-      fs.copyFileSync(defaultDbPath, userDbPath);
-    } catch (e) {
-      console.warn('Could not copy initial SQLite database:', e.message);
-    }
-  } else if (fs.existsSync(defaultJsonPath)) {
+  const resourceJsonPath = path.join(process.resourcesPath || '', 'data', 'pos_database.json');
+  const appJsonPath = path.join(__dirname, '..', 'data', 'pos_database.json');
+  const defaultJsonPath = fs.existsSync(resourceJsonPath) ? resourceJsonPath : appJsonPath;
+
+  if (fs.existsSync(defaultJsonPath)) {
     try {
       fs.copyFileSync(defaultJsonPath, userJsonPath);
+      console.log('[ELECTRON] Seeded pristine database template into AppData');
     } catch (e) {
-      console.warn('Could not copy initial JSON database:', e.message);
+      console.warn('Could not copy initial JSON database template:', e.message);
     }
   }
 }
@@ -163,14 +160,47 @@ ipcMain.handle('open-data-folder', async () => {
   return true;
 });
 
-ipcMain.handle('print-receipt', (event, options = {}) => {
+ipcMain.handle('get-printers', async () => {
+  if (!mainWindow) return [];
+  try {
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    return printers;
+  } catch (err) {
+    console.warn('[ELECTRON] Error fetching printers:', err.message);
+    return [];
+  }
+});
+
+ipcMain.handle('print-receipt', async (event, options = {}) => {
   if (!mainWindow) return false;
+  
+  let targetDevice = options.deviceName || '';
+  if (!targetDevice) {
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      // 1. Look for thermal POS printers
+      const thermalMatch = printers.find(p => 
+        /pos|thermal|receipt|xp-|rp-|epson|zj-|58|80|munbyn/i.test(p.name) ||
+        /pos|thermal|receipt|xp-|rp-|epson|zj-|58|80|munbyn/i.test(p.displayName || '')
+      );
+      // 2. Fallback to system default printer
+      const defaultPrinter = printers.find(p => p.isDefault);
+      targetDevice = thermalMatch?.name || defaultPrinter?.name || '';
+      if (targetDevice) {
+        console.log(`[ELECTRON] Auto-detected POS thermal printer: ${targetDevice}`);
+      }
+    } catch (e) {
+      console.warn('[ELECTRON] Could not auto-detect printer:', e.message);
+    }
+  }
+
   return new Promise((resolve) => {
     mainWindow.webContents.print(
       {
         silent: options.silent ?? false,
         printBackground: true,
-        deviceName: options.deviceName || '',
+        deviceName: targetDevice,
+        margins: { marginType: 'none' },
         ...options,
       },
       (success, failureReason) => {
@@ -188,6 +218,47 @@ ipcMain.handle('toggle-fullscreen', () => {
   const isFullScreen = mainWindow.isFullScreen();
   mainWindow.setFullScreen(!isFullScreen);
   return !isFullScreen;
+});
+
+// Native Save Dialog for Database Backup
+ipcMain.handle('save-backup-file', async (event, { filename, content }) => {
+  if (!mainWindow) return { success: false, error: 'No active application window' };
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save POS Database Backup',
+      defaultPath: filename || `kiidfromdream_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON Backup (*.json)', extensions: ['json'] }],
+    });
+    if (canceled || !filePath) {
+      return { canceled: true };
+    }
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true, filePath };
+  } catch (err) {
+    console.error('[ELECTRON] Save backup dialog error:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Native Open Dialog for Database Restore
+ipcMain.handle('open-backup-file', async () => {
+  if (!mainWindow) return { success: false, error: 'No active application window' };
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select POS Database Backup File to Restore',
+      filters: [{ name: 'JSON Backup (*.json)', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (canceled || !filePaths || filePaths.length === 0) {
+      return { canceled: true };
+    }
+    const targetPath = filePaths[0];
+    const content = fs.readFileSync(targetPath, 'utf-8');
+    return { success: true, filePath: targetPath, content };
+  } catch (err) {
+    console.error('[ELECTRON] Open backup dialog error:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 // App lifecycle

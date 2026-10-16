@@ -1,12 +1,12 @@
 {
-  "version": 68,
-  "lastUpdated": "2026-09-28T07:54:24.450Z",
+  "version": 105,
+  "lastUpdated": "2026-10-08T17:35:18.567Z",
   "products": [
     {
       "item_sn": "FISH-00001",
       "item_name": "Fresh Live Catfish (Point & Kill)",
       "item_picture": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=200&auto=format&fit=crop&q=60",
-      "quantity": 145.5,
+      "quantity": 115,
       "expiry_date": "2026-10-15",
       "item_cost": 2600,
       "product_measure_unit": "KG",
@@ -22,7 +22,7 @@
       "item_sn": "FISH-00002",
       "item_name": "Dutch Frozen Mackerel (Titus 20kg Carton)",
       "item_picture": "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=200&auto=format&fit=crop&q=60",
-      "quantity": 42,
+      "quantity": 37,
       "expiry_date": "2026-12-31",
       "item_cost": 48000,
       "product_measure_unit": "PIECES",
@@ -38,7 +38,7 @@
       "item_sn": "FISH-00003",
       "item_name": "Norwegian Salmon Fresh Steaks",
       "item_picture": "https://images.unsplash.com/photo-1499125562588-29fb8a56b5d5?w=200&auto=format&fit=crop&q=60",
-      "quantity": 28,
+      "quantity": 23,
       "expiry_date": "2026-10-08",
       "item_cost": 9500,
       "product_measure_unit": "KG",
@@ -54,7 +54,7 @@
       "item_sn": "FISH-00004",
       "item_name": "Red Snapper (Whole Gutted)",
       "item_picture": "https://images.unsplash.com/photo-1534483509719-3feaee7c30da?w=200&auto=format&fit=crop&q=60",
-      "quantity": 65,
+      "quantity": 59,
       "expiry_date": "2026-10-25",
       "item_cost": 4200,
       "product_measure_unit": "KG",
@@ -70,7 +70,7 @@
       "item_sn": "FISH-00005",
       "item_name": "Freshwater Tilapia (Cleaned)",
       "item_picture": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=200&auto=format&fit=crop&q=60",
-      "quantity": 85,
+      "quantity": 72,
       "expiry_date": "2026-10-18",
       "item_cost": 2900,
       "product_measure_unit": "KG",
@@ -86,7 +86,7 @@
       "item_sn": "FISH-00006",
       "item_name": "Atlantic Croaker (Large Cut)",
       "item_picture": "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=200&auto=format&fit=crop&q=60",
-      "quantity": 14,
+      "quantity": 10,
       "expiry_date": "2026-10-04",
       "item_cost": 4600,
       "product_measure_unit": "KG",
@@ -102,7 +102,7 @@
       "item_sn": "FISH-00007",
       "item_name": "Premium Smoked Catfish (Vacuum Pack)",
       "item_picture": "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=200&auto=format&fit=crop&q=60",
-      "quantity": 110,
+      "quantity": 97,
       "expiry_date": "2027-01-15",
       "item_cost": 3200,
       "product_measure_unit": "PIECES",
@@ -118,7 +118,7 @@
       "item_sn": "FISH-00008",
       "item_name": "Jumbo Tiger Prawns (Blast Frozen 1kg)",
       "item_picture": "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=200&auto=format&fit=crop&q=60",
-      "quantity": 35,
+      "quantity": 30,
       "expiry_date": "2026-11-20",
       "item_cost": 11000,
       "product_measure_unit": "PIECES",
@@ -134,7 +134,7 @@
       "item_sn": "FISH-00009",
       "item_name": "Smoked Mangrove Barracuda Cut",
       "item_picture": "https://images.unsplash.com/photo-1534483509719-3feaee7c30da?w=200&auto=format&fit=crop&q=60",
-      "quantity": 48,
+      "quantity": 44,
       "expiry_date": "2026-12-10",
       "item_cost": 5100,
       "product_measure_unit": "KG",
@@ -166,7 +166,7 @@
       "item_sn": "FISH-00011",
       "item_name": "Silver Hake Fish (Imported Carton)",
       "item_picture": "https://images.unsplash.com/photo-1499125562588-29fb8a56b5d5?w=200&auto=format&fit=crop&q=60",
-      "quantity": 55,
+      "quantity": 54,
       "expiry_date": "2026-11-28",
       "item_cost": 36000,
       "product_measure_unit": "PIECES",
@@ -182,7 +182,7 @@
       "item_sn": "FISH-00012",
       "item_name": "Live Mud Crab (Special Order)",
       "item_picture": "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?w=200&auto=format&fit=crop&q=60",
-      "quantity": 18,
+      "quantity": 16,
       "expiry_date": "2026-10-06",
       "item_cost": 7500,
       "product_measure_unit": "KG",
@@ -205,10 +205,10 @@
       "customer_type": "Wholesale",
       "discount_percent": 5,
       "discount_notes": "Long-standing VIP client. 5% discount on all purchases.",
-      "total_spent": 485000,
-      "purchase_count": 14,
+      "total_spent": 592587.5,
+      "purchase_count": 16,
       "preferred_product": "Norwegian Salmon Fresh Steaks",
-      "last_purchase_date": "2026-09-26 11:20 AM",
+      "last_purchase_date": "2026-09-27 11:20 AM",
       "registration_date": "2026-01-10",
       "notes": "Requires delivery packing with dry ice.",
       "id": "CUST-00101"
@@ -222,10 +222,10 @@
       "customer_type": "Restaurant",
       "discount_percent": 10,
       "discount_notes": "Commercial Restaurant Agreement - 10% wholesale rate.",
-      "total_spent": 1250000,
-      "purchase_count": 28,
+      "total_spent": 1342880,
+      "purchase_count": 30,
       "preferred_product": "Fresh Live Catfish (Point & Kill)",
-      "last_purchase_date": "2026-09-27 09:15 AM",
+      "last_purchase_date": "2026-09-27 09:30 AM",
       "registration_date": "2025-11-15",
       "notes": "Standing weekly order: 50kg Catfish + 10kg Salmon on Thursdays.",
       "id": "CUST-00102"
@@ -238,10 +238,10 @@
       "address": "Flat 3B, Chevy View Estate, Chevron Drive",
       "customer_type": "Retail",
       "discount_percent": 0,
-      "total_spent": 165000,
-      "purchase_count": 9,
+      "total_spent": 354200,
+      "purchase_count": 15,
       "preferred_product": "Red Snapper (Whole Gutted)",
-      "last_purchase_date": "2026-09-25 04:45 PM",
+      "last_purchase_date": "2026-09-28 10:15 AM",
       "registration_date": "2026-03-20",
       "id": "CUST-00103"
     },
@@ -254,8 +254,8 @@
       "customer_type": "Supermarket",
       "discount_percent": 8,
       "discount_notes": "Approved supermarket vendor discount.",
-      "total_spent": 2450000,
-      "purchase_count": 36,
+      "total_spent": 2726080,
+      "purchase_count": 38,
       "preferred_product": "Dutch Frozen Mackerel (Titus 20kg Carton)",
       "last_purchase_date": "2026-09-28 08:30 AM",
       "registration_date": "2025-08-10",
@@ -271,10 +271,10 @@
       "customer_type": "Wholesale",
       "discount_percent": 6,
       "discount_notes": "Wholesale fish distribution agreement.",
-      "total_spent": 890000,
-      "purchase_count": 18,
+      "total_spent": 972579,
+      "purchase_count": 20,
       "preferred_product": "Premium Smoked Catfish (Vacuum Pack)",
-      "last_purchase_date": "2026-09-24 02:10 PM",
+      "last_purchase_date": "2026-09-27 04:15 PM",
       "registration_date": "2026-02-12",
       "id": "CUST-00105"
     },
@@ -287,175 +287,31 @@
       "customer_type": "Restaurant",
       "discount_percent": 7,
       "discount_notes": "Catering and soup kitchen tier discount.",
-      "total_spent": 420000,
-      "purchase_count": 15,
+      "total_spent": 450504,
+      "purchase_count": 16,
       "preferred_product": "Freshwater Tilapia (Cleaned)",
-      "last_purchase_date": "2026-09-26 05:30 PM",
+      "last_purchase_date": "2026-09-26 11:40 AM",
       "registration_date": "2026-04-05",
       "id": "CUST-00106"
     }
   ],
-  "suppliers": [
-    {
-      "supplier_id": "SUP-00012",
-      "supplier_name": "Lagos Fish Wholesale Ltd",
-      "contact_person": "Mr. Okafor",
-      "phone_number": "+234 803 456 7890",
-      "email": "okafor@lagosfish.com",
-      "address": "Lekki Fish Market, Lagos",
-      "products_supplied": [
-        "Catfish",
-        "Tilapia",
-        "Snapper"
-      ],
-      "lead_time_days": 2,
-      "payment_terms": "Cash on Delivery",
-      "average_unit_cost": 2500,
-      "reliability_rating": 4.8,
-      "status": "Active",
-      "id": "SUP-00012"
-    },
-    {
-      "supplier_id": "SUP-00013",
-      "supplier_name": "Delta Freshwater Aquaculture",
-      "contact_person": "Engr. Tarila",
-      "phone_number": "+234 802 987 6543",
-      "email": "sales@deltafish.ng",
-      "address": "Warri Port Road, Delta State",
-      "products_supplied": [
-        "Fresh Catfish",
-        "Smoked Dried Fish"
-      ],
-      "lead_time_days": 3,
-      "payment_terms": "Net 7 Days",
-      "average_unit_cost": 2400,
-      "reliability_rating": 4.5,
-      "status": "Active",
-      "id": "SUP-00013"
-    },
-    {
-      "supplier_id": "SUP-00014",
-      "supplier_name": "Atlantic Coldchain Logistics",
-      "contact_person": "Mrs. Funke",
-      "phone_number": "+234 809 123 4567",
-      "email": "funke@atlanticcold.com",
-      "address": "Wharf Road, Apapa, Lagos",
-      "products_supplied": [
-        "Frozen Mackerel",
-        "Atlantic Croaker",
-        "Red Snapper"
-      ],
-      "lead_time_days": 1,
-      "payment_terms": "Net 30 Days",
-      "average_unit_cost": 2900,
-      "reliability_rating": 4.9,
-      "status": "Active",
-      "id": "SUP-00014"
-    }
-  ],
+  "suppliers": [],
   "employees": [
     {
       "staff_id": "STAFF-SUPER-001",
-      "staff_name": "Boluwatife Abiri (Super Admin)",
+      "staff_name": "Boluwatife (Super Admin)",
       "username": "Boluwatife",
-      "password": "be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded",
+      "password": "aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec",
       "phone_number": "+234 800 000 0001",
       "role": "Super Admin",
-      "pin": "be9b260d7fa78f63:dcee42f7e8b0bb932a5dd91c9d2d880551d1f12c9c3329e7cba23bce2adf1ded",
-      "shift_time": "Full Day",
-      "date_hired": "2023-01-01",
-      "status": "Active"
-    },
-    {
-      "staff_id": "STAFF-000",
-      "staff_name": "Alex Abiri",
-      "username": "alex",
-      "phone_number": "+234 800 000 0000",
-      "role": "Admin",
-      "pin": "9999",
+      "pin": "aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec",
       "shift_time": "Full Day",
       "date_hired": "2023-01-01",
       "status": "Active",
-      "id": "STAFF-000"
-    },
-    {
-      "staff_id": "STAFF-004",
-      "staff_name": "Chidinma",
-      "username": "chidinma",
-      "phone_number": "+234 802 111 0004",
-      "role": "Manager",
-      "pin": "4444",
-      "shift_time": "Full Day",
-      "date_hired": "2023-11-10",
-      "status": "Active",
-      "id": "STAFF-004"
-    },
-    {
-      "staff_id": "STAFF-003",
-      "staff_name": "Ibrahim",
-      "username": "ibrahim",
-      "phone_number": "+234 802 111 0003",
-      "role": "Supervisor",
-      "pin": "3333",
-      "shift_time": "Morning",
-      "date_hired": "2024-02-20",
-      "status": "Active",
-      "id": "STAFF-003"
-    },
-    {
-      "staff_id": "STAFF-001",
-      "staff_name": "Kola",
-      "username": "kola",
-      "phone_number": "+234 802 111 0001",
-      "role": "Cashier",
-      "pin": "1111",
-      "shift_time": "Morning",
-      "date_hired": "2024-01-15",
-      "status": "Active",
-      "id": "STAFF-001"
-    },
-    {
-      "staff_id": "STAFF-002",
-      "staff_name": "Tayo",
-      "username": "tayo",
-      "phone_number": "+234 802 111 0002",
-      "role": "Cashier",
-      "pin": "2222",
-      "shift_time": "Afternoon",
-      "date_hired": "2024-03-01",
-      "status": "Active",
-      "id": "STAFF-002"
+      "id": "STAFF-SUPER-001"
     }
   ],
-  "purchaseOrders": [
-    {
-      "po_id": "PO-20260922-034",
-      "supplier_id": "SUP-00012",
-      "item_sn": "FISH-00045",
-      "quantity_ordered": 50,
-      "unit_cost": 2500,
-      "total_cost": 125000,
-      "order_date": "2026-09-22",
-      "expected_delivery_date": "2026-09-24",
-      "status": "PENDING",
-      "notes": "Catfish restock below reorder level (20kg)",
-      "id": "PO-1790520719132"
-    },
-    {
-      "po_id": "PO-20260918-028",
-      "supplier_id": "SUP-00014",
-      "item_sn": "FISH-00047",
-      "quantity_ordered": 40,
-      "unit_cost": 3800,
-      "total_cost": 152000,
-      "order_date": "2026-09-18",
-      "expected_delivery_date": "2026-09-19",
-      "actual_delivery_date": "2026-09-19",
-      "status": "RECEIVED",
-      "notes": "Red Snapper batch from Apapa wharf",
-      "id": "PO-1790520719133"
-    }
-  ],
+  "purchaseOrders": [],
   "sales": [
     {
       "transaction_id": "TXN-20260925-001",
@@ -479,7 +335,8 @@
       "change_due": 200,
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00103",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-25 09:15 AM"
     },
     {
       "transaction_id": "TXN-20260925-002",
@@ -515,7 +372,8 @@
       "payment_reference": "MP-RRN-992810",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00101",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-25 10:45 AM"
     },
     {
       "transaction_id": "TXN-20260925-003",
@@ -540,7 +398,8 @@
       "payment_reference": "GTB-TRF-48291039",
       "staff_id": "STAFF-002",
       "customer_id": "CUST-00104",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-25 01:30 PM"
     },
     {
       "transaction_id": "TXN-20260925-004",
@@ -588,7 +447,8 @@
       "change_due": 0,
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00102",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-25 03:50 PM"
     },
     {
       "transaction_id": "TXN-20260926-001",
@@ -613,7 +473,8 @@
       "payment_reference": "OPAY-8829102",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00103",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-26 10:10 AM"
     },
     {
       "transaction_id": "TXN-20260926-002",
@@ -639,7 +500,8 @@
       "change_due": 496,
       "staff_id": "STAFF-002",
       "customer_id": "CUST-00106",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-26 11:40 AM"
     },
     {
       "transaction_id": "TXN-20260926-003",
@@ -675,7 +537,8 @@
       "payment_reference": "GTB-SESSION-7729104",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00105",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-26 02:15 PM"
     },
     {
       "transaction_id": "TXN-20260926-004",
@@ -699,7 +562,11 @@
       "change_due": 4400,
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00103",
-      "status": "PARTIALLY_REFUNDED"
+      "status": "PARTIALLY_REFUNDED",
+      "timestamp": "2026-09-26 04:30 PM",
+      "refund_history": [
+        "REF-20260926-001"
+      ]
     },
     {
       "transaction_id": "TXN-20260927-001",
@@ -726,7 +593,8 @@
       "payment_reference": "MP-8839201",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00102",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-27 09:30 AM"
     },
     {
       "transaction_id": "TXN-20260927-002",
@@ -762,7 +630,8 @@
       "payment_reference": "MP-7729104",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00101",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-27 11:20 AM"
     },
     {
       "transaction_id": "TXN-20260927-003",
@@ -786,7 +655,8 @@
       "change_due": 6000,
       "staff_id": "STAFF-002",
       "customer_id": "CUST-00103",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-27 02:40 PM"
     },
     {
       "transaction_id": "TXN-20260927-004",
@@ -825,7 +695,8 @@
       "change_due": 0,
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00105",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-27 04:15 PM"
     },
     {
       "transaction_id": "TXN-20260928-001",
@@ -852,7 +723,8 @@
       "payment_reference": "GTB-CORP-991820",
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00104",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-28 08:30 AM"
     },
     {
       "transaction_id": "TXN-20260928-002",
@@ -885,7 +757,8 @@
       "change_due": 700,
       "staff_id": "STAFF-001",
       "customer_id": "CUST-00103",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-28 09:45 AM"
     },
     {
       "transaction_id": "TXN-20260928-003",
@@ -910,228 +783,50 @@
       "payment_reference": "MP-9948201",
       "staff_id": "STAFF-002",
       "customer_id": "CUST-00103",
-      "status": "COMPLETED"
+      "status": "COMPLETED",
+      "timestamp": "2026-09-28 10:15 AM"
     }
   ],
   "refunds": [
     {
       "refund_id": "REF-20260926-001",
-      "original_txn_id": "TXN-20260926-004",
+      "original_transaction_id": "TXN-20260926-004",
       "item_sn": "FISH-00006",
       "item_name": "Atlantic Croaker (Large Cut)",
       "quantity_refunded": 2,
-      "unit": "KG",
-      "amount_refunded": 12800,
+      "refund_amount": 12800,
       "reason": "Defective/Damaged Goods",
       "date_time": "2026-09-26 05:15 PM",
-      "authorized_by_staff_id": "STAFF-004",
-      "authorized_by_staff_name": "Chidinma",
-      "authorized_by_role": "Manager",
-      "restored_to_inventory": true
+      "staff_id": "STAFF-004",
+      "customer_id": "CUST-00201",
+      "authorized_by": "Chidinma",
+      "timestamp": "2026-09-26 05:15 PM"
     }
   ],
   "auditLogs": [
     {
-      "id": "AUD-20260922-0001",
-      "timestamp": "2026-09-22 08:00:15",
-      "staff_id": "STAFF-000",
-      "staff_name": "Alex Abiri",
-      "role": "Admin",
-      "category": "Security",
-      "action": "STAFF_SWITCHED",
-      "details": "System initialized. Administrator Alex Abiri logged in on Terminal #1.",
+      "id": "AUDIT-SEED-001",
+      "timestamp": "2026-10-08T17:35:18.566Z",
+      "user_id": "STAFF-SUPER-001",
+      "staff_id": "STAFF-SUPER-001",
+      "staff_name": "Boluwatife (Super Admin)",
+      "category": "System",
+      "action": "DATABASE_INITIALIZED",
       "severity": "INFO",
-      "tamper_hash": "9f8e7d6c5b4a3210f"
-    },
-    {
-      "id": "AUD-20260922-0002",
-      "timestamp": "2026-09-22 08:30:00",
-      "staff_id": "STAFF-004",
-      "staff_name": "Chidinma",
-      "role": "Manager",
-      "category": "Purchasing",
-      "action": "PO_CREATED",
-      "details": "Created Purchase Order PO-20260922-034 for 50 KG Catfish from SUP-00012. Total: ₦125,000.",
-      "severity": "SUCCESS",
+      "details": "Comprehensive system seed database created with demo inventory, customers, and sales.",
       "metadata": {
-        "po_id": "PO-20260922-034",
-        "amount": 125000
-      },
-      "tamper_hash": "8e7d6c5b4a3210fa1"
-    },
-    {
-      "id": "AUD-20260922-0003",
-      "timestamp": "2026-09-22 09:15:00",
-      "staff_id": "STAFF-004",
-      "staff_name": "Chidinma",
-      "role": "Manager",
-      "category": "Transfer",
-      "action": "STOCK_TRANSFERRED",
-      "details": "Transferred 10 KG Red Snapper from Main Cold Room to Counter Display Tank 1.",
-      "severity": "INFO",
-      "tamper_hash": "7d6c5b4a3210fa1b2"
-    },
-    {
-      "id": "AUD-20260922-0004",
-      "timestamp": "2026-09-22 10:30:15",
-      "staff_id": "STAFF-001",
-      "staff_name": "Kola",
-      "role": "Cashier",
-      "category": "Sales",
-      "action": "SALE_COMPLETED",
-      "details": "Processed checkout TXN-20260922-087. Amount: ₦19,000 via Cash. Customer: CUST-00156.",
-      "severity": "SUCCESS",
-      "metadata": {
-        "transaction_id": "TXN-20260922-087",
-        "amount": 19000
-      },
-      "tamper_hash": "6c5b4a3210fa1b2c3"
-    },
-    {
-      "id": "AUD-20260922-0005",
-      "timestamp": "2026-09-22 11:45:22",
-      "staff_id": "STAFF-003",
-      "staff_name": "Ibrahim",
-      "role": "Supervisor",
-      "category": "Refunds",
-      "action": "REFUND_PROCESSED",
-      "details": "Authorized and processed refund of ₦8,000 for 2 KG Tilapia on TXN-20260922-087. Stock restored to 37 KG. Reason: Spoilt / Expired Fish.",
-      "severity": "WARNING",
-      "metadata": {
-        "refund_id": "REF-20260922-001",
-        "amount": 8000
-      },
-      "tamper_hash": "5b4a3210fa1b2c3d4"
-    },
-    {
-      "id": "AUD-20260922-0006",
-      "timestamp": "2026-09-22 13:20:10",
-      "staff_id": "STAFF-001",
-      "staff_name": "Kola",
-      "role": "Cashier",
-      "category": "Sales",
-      "action": "ORDER_VOIDED",
-      "details": "Aborted walk-in order ORD-20260922-042 (2 items, ₦24,500). Cashier: Kola. Reason: Customer walked away / abandoned basket. Inventory verification restored.",
-      "severity": "WARNING",
-      "metadata": {
-        "order_id": "ORD-20260922-042",
-        "void_id": "VOID-20260922-001",
-        "amount": 24500,
-        "reason": "Customer walked away / abandoned basket",
-        "pattern_type": "ORDER_VOID"
-      },
-      "tamper_hash": "4a3210fa1b2c3d4e5"
-    },
-    {
-      "id": "AUD-20260922-0007",
-      "timestamp": "2026-09-22 14:15:30",
-      "staff_id": "STAFF-003",
-      "staff_name": "Ibrahim",
-      "role": "Supervisor",
-      "category": "CycleCount",
-      "action": "CYCLE_COUNT_ADJUSTED",
-      "details": "Physical Cycle Count CC-20260921-001 on Fresh Live Catfish (FISH-00045): System had 24 KG, counted 22 KG (Variance: -2 KG). Stock adjusted: YES. Supervisor: Ibrahim. Reason: Water evaporation & scale calibration.",
-      "severity": "WARNING",
-      "metadata": {
-        "count_id": "CC-20260921-001",
-        "item_sn": "FISH-00045",
-        "variance": -2,
-        "adjustStock": true,
-        "pattern_type": "INVENTORY_ANOMALY"
-      },
-      "tamper_hash": "3210fa1b2c3d4e5f6"
-    },
-    {
-      "id": "AUD-20260922-0008",
-      "timestamp": "2026-09-22 15:45:00",
-      "staff_id": "STAFF-001",
-      "staff_name": "Kola",
-      "role": "Cashier",
-      "category": "Security",
-      "action": "PERMISSION_DENIED",
-      "details": "User Kola attempted to execute Master Stock Deletion without Admin privileges. Access blocked and logged.",
-      "severity": "ALERT",
-      "metadata": {
-        "target_action": "DELETE_INVENTORY",
-        "pattern_type": "SECURITY_BREACH"
-      },
-      "tamper_hash": "210fa1b2c3d4e5f67"
-    },
-    {
-      "id": "AUD-20260922-0009",
-      "timestamp": "2026-09-22 16:10:45",
-      "staff_id": "STAFF-004",
-      "staff_name": "Chidinma",
-      "role": "Manager",
-      "category": "Security",
-      "action": "MANAGER_OVERRIDE",
-      "details": "Manager Chidinma authorized 15% custom discount override on wholesale invoice TXN-20260922-099. Reason: Bulk restaurant buyer rate.",
-      "severity": "WARNING",
-      "metadata": {
-        "discount_percent": 15,
-        "approved_by": "STAFF-004",
-        "pattern_type": "MANAGER_OVERRIDE"
-      },
-      "tamper_hash": "10fa1b2c3d4e5f678"
+        "version": 1
+      }
     }
   ],
-  "cycleCounts": [
-    {
-      "count_id": "CC-20260921-001",
-      "date_time": "2026-09-21 17:30:00",
-      "staff_id": "STAFF-003",
-      "staff_name": "Ibrahim",
-      "role": "Supervisor",
-      "item_sn": "FISH-00045",
-      "item_name": "Fresh Live Catfish (Clarias)",
-      "system_qty": 24,
-      "counted_qty": 22,
-      "discrepancy": -2,
-      "unit": "KG",
-      "reason": "Water evaporation & weighing scale calibration adjustment",
-      "adjusted": true
-    },
-    {
-      "count_id": "CC-20260920-002",
-      "date_time": "2026-09-20 08:45:00",
-      "staff_id": "STAFF-003",
-      "staff_name": "Ibrahim",
-      "role": "Supervisor",
-      "item_sn": "FISH-00047",
-      "item_name": "Atlantic Mackerel (Titus)",
-      "system_qty": 15,
-      "counted_qty": 15,
-      "discrepancy": 0,
-      "unit": "KG",
-      "reason": "Routine morning reconciliation - exact match",
-      "adjusted": false
-    }
-  ],
-  "stockTransfers": [
-    {
-      "transfer_id": "TRF-20260922-001",
-      "date_time": "2026-09-22 09:15:00",
-      "item_sn": "FISH-00048",
-      "item_name": "Red Snapper (Lutjanus)",
-      "quantity": 10,
-      "unit": "KG",
-      "from_location": "Main Walk-in Cold Room A",
-      "to_location": "Display Counter Fish Tank 1",
-      "authorized_by_id": "STAFF-004",
-      "authorized_by_name": "Chidinma (Manager)",
-      "notes": "Morning display replenishment for retail counter"
-    }
-  ],
+  "cycleCounts": [],
+  "stockTransfers": [],
   "parkedOrders": [
     {
-      "order_id": "ORD-PARK-20260928-001",
-      "order_number": 1,
-      "order_label": "Mrs. Folake Adebayo (Held)",
+      "id": "PARK-20260928-001",
       "customer_id": "CUST-00103",
       "customer_name": "Mrs. Folake Adebayo",
-      "created_at": "2026-09-28 10:20 AM",
       "parked_at": "2026-09-28 10:20 AM",
-      "park_reason": "Customer stepped to car to fetch cash",
       "staff_id": "STAFF-001",
       "staff_name": "Kola",
       "items": [
@@ -1145,6 +840,15 @@
           "cost_price": 2600
         }
       ],
+      "subtotal": 15300,
+      "discount_amount": 0,
+      "final_total": 15300,
+      "notes": "Customer stepped to car to fetch cash",
+      "order_id": "PARK-20260928-001",
+      "order_number": 1,
+      "order_label": "Mrs. Folake Adebayo (Held)",
+      "created_at": "2026-09-28 10:20 AM",
+      "park_reason": "Customer stepped to car to fetch cash",
       "customDiscount": 0,
       "customDiscountReason": "",
       "discountAuthorizedBy": null,
@@ -1175,106 +879,24 @@
       "void_reason": "Customer payment declined / Card chip error",
       "void_notes": "Customer card declined three times; customer aborted sale.",
       "restored_to_inventory": true,
-      "void_id": "VOID-1790582064449"
+      "void_id": "VOID-1791480793908"
+    },
+    {
+      "id": "VOID-20260927-001",
+      "date_time": "2026-09-27 12:45 PM",
+      "voided_by": "Chidinma (Manager)",
+      "voided_by_staff_id": "STAFF-004",
+      "voided_by_role": "Manager",
+      "total_amount": 27000,
+      "items_count": 1,
+      "void_reason": "Customer payment declined / Card chip error",
+      "void_notes": "Customer card declined three times; customer aborted sale.",
+      "restored_to_inventory": true,
+      "void_id": "VOID-1791480918560"
     }
   ],
-  "posTerminals": [
-    {
-      "id": "POS-001",
-      "name": "Counter 1 - Moniepoint POS",
-      "type": "POS_TERMINAL",
-      "provider": "Moniepoint",
-      "terminal_id": "MP-882190",
-      "account_name": "Kiid From Dream Frozen Foods Ltd",
-      "account_number": "5019283741",
-      "bank_name": "Moniepoint Microfinance Bank",
-      "assigned_location": "Main Retail Counter 1",
-      "status": "Active",
-      "is_default": true,
-      "notes": "Primary counter wireless card terminal",
-      "created_at": "2026-09-01"
-    },
-    {
-      "id": "POS-002",
-      "name": "Cold Room Express - OPay POS",
-      "type": "POS_TERMINAL",
-      "provider": "OPay",
-      "terminal_id": "OPAY-772109",
-      "account_name": "Kiid From Dream Seafoods",
-      "account_number": "8023456789",
-      "bank_name": "OPay Digital Services",
-      "assigned_location": "Cold Room Floor Express",
-      "status": "Active",
-      "is_default": false,
-      "notes": "Mobile POS for quick scale weighing desk",
-      "created_at": "2026-09-05"
-    },
-    {
-      "id": "POS-003",
-      "name": "Wholesale Desk - GTBank POS",
-      "type": "POS_TERMINAL",
-      "provider": "GTBank",
-      "terminal_id": "GTB-554120",
-      "account_name": "Kiid From Dream Enterprises",
-      "account_number": "0123456789",
-      "bank_name": "Guaranty Trust Bank",
-      "assigned_location": "Bulk / Wholesale Desk",
-      "status": "Active",
-      "is_default": false,
-      "notes": "Commercial POS for 50kg+ wholesale purchases",
-      "created_at": "2026-09-10"
-    },
-    {
-      "id": "BANK-001",
-      "name": "GTBank Commercial (Direct Transfer)",
-      "type": "BANK_TRANSFER_ACCOUNT",
-      "provider": "GTBank",
-      "account_name": "Kiid From Dream Enterprises - Sales Main",
-      "account_number": "0123456789",
-      "bank_name": "Guaranty Trust Bank",
-      "assigned_location": "Central Counter Bank Transfer",
-      "status": "Active",
-      "is_default": true,
-      "notes": "Main commercial settlement bank account for instant customer transfers",
-      "created_at": "2026-09-01"
-    },
-    {
-      "id": "BANK-002",
-      "name": "Zenith Bank Business Account",
-      "type": "BANK_TRANSFER_ACCOUNT",
-      "provider": "Zenith Bank",
-      "account_name": "Kiid From Dream Frozen Foods Ltd",
-      "account_number": "1019283746",
-      "bank_name": "Zenith Bank Plc",
-      "assigned_location": "Secondary Settlement Desk",
-      "status": "Active",
-      "is_default": false,
-      "notes": "Secondary treasury and cash-to-bank deposit account",
-      "created_at": "2026-09-12"
-    }
-  ],
+  "posTerminals": [],
   "cashTransfers": [
-    {
-      "transfer_id": "CASH-TRF-20260921-001",
-      "date_time": "2026-09-21 04:30 PM",
-      "cashier_staff_id": "STAFF-001",
-      "cashier_staff_name": "Kolawole A.",
-      "cashier_role": "Cashier",
-      "manager_staff_id": "STAFF-004",
-      "manager_staff_name": "Chidinma O.",
-      "manager_role": "Manager",
-      "amount_transferred": 40000,
-      "cashier_cash_before": 50000,
-      "cashier_cash_remaining": 10000,
-      "destination_bank_name": "Guaranty Trust Bank",
-      "destination_account_name": "Kiid From Dream Enterprises - Sales Main",
-      "destination_account_number": "0123456789",
-      "bank_account_id": "BANK-001",
-      "deposit_slip_number": "GTB-DEP-881920",
-      "notes": "End of afternoon shift cash clearing. Left ₦10,000 float for evening counter.",
-      "status": "COMPLETED",
-      "id": "CASH-TR-1790520719138"
-    },
     {
       "transfer_id": "CASH-TRF-20260926-001",
       "date_time": "2026-09-26 05:45 PM",
@@ -1293,9 +915,13 @@
       "deposit_slip_number": "GTB-SLIP-491028",
       "notes": "Evening shift cash banking. ₦8,000 retained as morning float.",
       "status": "COMPLETED",
-      "id": "CASH-TR-1790582064449"
+      "id": "CASH-TRF-20260926-001",
+      "amount": 50000,
+      "timestamp": "2026-09-26 05:45 PM",
+      "transfer_type": "POS_TO_BANK"
     }
   ],
+  "customerDebtRepayments": [],
   "receiptSettings": {
     "id": "DEFAULT_RECEIPT_CONFIG",
     "business_name": "KIID FROM DREAM LTD",
@@ -1314,7 +940,177 @@
     "show_cashier_name": true,
     "show_tax_details": true,
     "paper_width": "80mm",
-    "updated_at": "2026-09-28T07:54:24.440Z",
+    "updated_at": "2026-10-08T17:35:18.541Z",
     "updated_by_staff_name": "Alex Abiri (Admin)"
-  }
+  },
+  "discountSecurityConfig": {
+    "id": "DISCOUNT_SECURITY_CONFIG",
+    "discount_pin": "8e889b7fae446d1b:5b5ff5f0376cf749ca232938a7c2aa5b64c1daff1fa5117f7b3a7a935fa7c06b",
+    "is_configured": true,
+    "updated_at": "2026-10-01T00:00:00.000Z",
+    "updated_by_staff_name": "Store Manager"
+  },
+  "categories": [
+    {
+      "id": "CAT-GEN",
+      "name": "General",
+      "description": "General merchandise and sundries",
+      "created_at": "2026-10-01T15:35:26.179Z"
+    },
+    {
+      "id": "CAT-GROC",
+      "name": "Groceries",
+      "description": "Packaged foods and kitchen essentials",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-BEV",
+      "name": "Beverages",
+      "description": "Drinks, juices, and water",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-SNK",
+      "name": "Food & Snacks",
+      "description": "Ready-to-eat snacks and biscuits",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-PER",
+      "name": "Perishables",
+      "description": "Fresh produce and short shelf-life items",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-FRZ",
+      "name": "Frozen Goods",
+      "description": "Frozen foods and cold storage items",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-ELEC",
+      "name": "Electronics",
+      "description": "Small appliances and accessories",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-APP",
+      "name": "Apparel & Clothing",
+      "description": "Clothing and garments",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-HOU",
+      "name": "Household",
+      "description": "Cleaning supplies and home goods",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-PERC",
+      "name": "Personal Care",
+      "description": "Toiletries and hygiene products",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-HDW",
+      "name": "Hardware",
+      "description": "Tools and maintenance supplies",
+      "created_at": "2026-10-01T15:35:26.180Z"
+    },
+    {
+      "id": "CAT-FISH-FW",
+      "name": "Freshwater Fish",
+      "description": "Catfish, Tilapia, and river varieties",
+      "created_at": "2026-10-01T15:35:26.181Z"
+    },
+    {
+      "id": "CAT-FISH-SW",
+      "name": "Saltwater Fish",
+      "description": "Mackerel, Croaker, and sea fish",
+      "created_at": "2026-10-01T15:35:26.181Z"
+    },
+    {
+      "id": "CAT-FISH-FZ",
+      "name": "Frozen Fish",
+      "description": "Cold packaged fish stock",
+      "created_at": "2026-10-01T15:35:26.181Z"
+    },
+    {
+      "id": "CAT-FISH-DR",
+      "name": "Dried Fish",
+      "description": "Smoked and sun-dried fish varieties",
+      "created_at": "2026-10-01T15:35:26.181Z"
+    }
+  ],
+  "discountRules": [
+    {
+      "rule_id": "RULE_BULK_10KG",
+      "name": "Bulk Purchase (≥10kg Single Item)",
+      "description": "5% discount on qualifying fish/perishable items when purchasing 10kg or more of that item",
+      "condition_type": "ITEM_WEIGHT_THRESHOLD",
+      "threshold_value": 10,
+      "discount_type": "PERCENT",
+      "discount_value": 5,
+      "scope": "QUALIFYING_ITEM",
+      "max_discount_cap": 20000,
+      "requires_manager_approval": false,
+      "is_active": true,
+      "updated_at": "2026-10-03T19:06:09.140Z"
+    },
+    {
+      "rule_id": "RULE_BULK_25KG",
+      "name": "High Volume Basket (≥25kg Total)",
+      "description": "8% discount for orders totaling 25kg or more across all items",
+      "condition_type": "CART_QUANTITY_THRESHOLD",
+      "threshold_value": 25,
+      "discount_type": "PERCENT",
+      "discount_value": 8,
+      "scope": "BASKET",
+      "max_discount_cap": 35000,
+      "requires_manager_approval": false,
+      "is_active": true,
+      "updated_at": "2026-10-03T19:06:09.140Z"
+    },
+    {
+      "rule_id": "RULE_SUBTOTAL_100K",
+      "name": "Wholesale Tier (≥₦100,000)",
+      "description": "Flat ₦5,000 instant discount on basket subtotal over ₦100,000",
+      "condition_type": "CART_SUBTOTAL_THRESHOLD",
+      "threshold_value": 100000,
+      "discount_type": "FIXED",
+      "discount_value": 5000,
+      "scope": "BASKET",
+      "requires_manager_approval": false,
+      "is_active": true,
+      "updated_at": "2026-10-03T19:06:09.141Z"
+    },
+    {
+      "rule_id": "RULE_LOYALTY_5",
+      "name": "Frequent Buyer Reward (≥5 Visits)",
+      "description": "5% discount for registered customers with 5 or more previous visits",
+      "condition_type": "CUSTOMER_LOYALTY",
+      "threshold_value": 5,
+      "discount_type": "PERCENT",
+      "discount_value": 5,
+      "scope": "BASKET",
+      "max_discount_cap": 15000,
+      "requires_manager_approval": false,
+      "is_active": true,
+      "updated_at": "2026-10-03T19:06:09.141Z"
+    },
+    {
+      "rule_id": "RULE_MANAGER_CLEARANCE",
+      "name": "Manager Clearance / Promo Override",
+      "description": "10% special clearance or promotional discount (Requires Manager PIN)",
+      "condition_type": "GENERAL_OVERRIDE",
+      "threshold_value": 0,
+      "discount_type": "PERCENT",
+      "discount_value": 10,
+      "scope": "BASKET",
+      "max_discount_cap": 50000,
+      "requires_manager_approval": true,
+      "is_active": true,
+      "updated_at": "2026-10-03T19:06:09.141Z"
+    }
+  ]
 }

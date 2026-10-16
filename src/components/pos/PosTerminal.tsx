@@ -33,7 +33,8 @@ import {
   PlayCircle,
   X,
   Copy,
-  Check
+  Check,
+  KeyRound
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { WeightModal } from './WeightModal';
@@ -42,6 +43,10 @@ import { ParkOrderPromptModal } from './ParkOrderPromptModal';
 import { VoidOrderModal } from './VoidOrderModal';
 import { ProductCard } from './ProductCard';
 import { CartItemRow } from './CartItemRow';
+import { DiscountPinModal } from './DiscountPinModal';
+import { ConfigureDiscountPinModal } from './ConfigureDiscountPinModal';
+import { evaluateDiscountRule } from '../../utils/discountRules';
+import { DiscountRule } from '../../types';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
@@ -88,6 +93,15 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
     voidedOrders,
     cancelAndVoidOrder,
     posTerminals,
+    categories: dynamicCategories,
+    discountSecurityConfig,
+    discountRules,
+    selectedDiscountRuleId,
+    verifyDiscountAuthorizationPin,
+    updateDiscountPin,
+    applyDiscountWithPin,
+    applyPreApprovedRule,
+    validateCartProfitMargin,
   } = usePos();
 
   // Active POS Devices and Bank Accounts
@@ -156,6 +170,15 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   const [cashTendered, setCashTendered] = useState<string>('');
   const [singleRef, setSingleRef] = useState<string>(''); // e.g. Transfer session ID or POS RRN
 
+  // Credit / Pay Later Terms State
+  const [creditDeposit, setCreditDeposit] = useState<string>('0');
+  const [creditDepositMethod, setCreditDepositMethod] = useState<'Cash' | 'POS' | 'Bank Transfer'>('Cash');
+  const [creditDueDate, setCreditDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().split('T')[0];
+  });
+
   // Split-Payment State
   const [splitCashAmount, setSplitCashAmount] = useState<string>('');
   const [splitCashTendered, setSplitCashTendered] = useState<string>('');
@@ -174,16 +197,32 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null);
 
-  // Discount Panel & PIN Auth State (Admin & Manager only)
+  // Discount Panel & PIN Auth State
   const [isDiscountPanelOpen, setIsDiscountPanelOpen] = useState(false);
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-  const [overrideStaff, setOverrideStaff] = useState<Employee | null>(null);
+  const [isDiscountPinModalOpen, setIsDiscountPinModalOpen] = useState(false);
+  const [isConfigurePinModalOpen, setIsConfigurePinModalOpen] = useState(false);
+  const [discountTab, setDiscountTab] = useState<'rules' | 'custom'>('rules');
+  const [pendingDiscountAuth, setPendingDiscountAuth] = useState<{
+    title: string;
+    amountNaira: number;
+    description: string;
+    ruleId?: string;
+  } | null>(null);
+
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent');
   const [discountValue, setDiscountValue] = useState<string>('5');
   const [discountReasonText, setDiscountReasonText] = useState<string>('Manager Approved Discount');
   const [discountError, setDiscountError] = useState<string | null>(null);
 
-  const categories = ['All', 'Freshwater Fish', 'Saltwater Fish', 'Frozen Fish', 'Dried Fish'];
+  const canManageDiscountPin = ['Supervisor', 'Manager', 'Admin', 'Super Admin'].includes(activeStaff.role) || hasPermission('CAN_SYSTEM_CONFIG');
+
+  const categories = useMemo(() => {
+    const fromDb = dynamicCategories.map(c => c.name);
+    const fromProducts = products.map(p => p.product_category).filter(Boolean);
+    const defaultCategories = ['General', 'Groceries', 'Beverages', 'Food & Snacks', 'Perishables', 'Frozen Goods'];
+    const merged = Array.from(new Set([...fromDb, ...fromProducts, ...defaultCategories]));
+    return ['All', ...merged];
+  }, [dynamicCategories, products]);
 
   // Automatically update second split when cash amount or cart final total changes
   useEffect(() => {
@@ -255,7 +294,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
     setCheckoutSuccess(null);
 
     if (cart.length === 0) {
-      setCheckoutError('Please add fish products to the cart before checking out.');
+      setCheckoutError('Please add products to the cart before checking out.');
       return;
     }
 
@@ -272,6 +311,11 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         bank_account_number?: string;
         bank_name?: string;
         payment_reference?: string;
+        credit_amount?: number;
+        deposit_amount?: number;
+        balance_due?: number;
+        payment_due_date?: string;
+        deposit_payment_method?: 'Cash' | 'POS' | 'Bank Transfer' | 'Transfer' | string;
       } | undefined = undefined;
 
       if (selectedPaymentMethod === 'POS') {
@@ -296,13 +340,28 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         paymentMeta = {
           payment_reference: 'CASH-DRAWER',
         };
+      } else if (selectedPaymentMethod === 'Credit / Pay Later') {
+        const depNum = Math.max(0, Number(creditDeposit) || 0);
+        const creditAmt = Math.max(0, cartFinalTotal - depNum);
+        paymentMeta = {
+          credit_amount: creditAmt,
+          deposit_amount: depNum,
+          balance_due: creditAmt,
+          payment_due_date: creditDueDate,
+          deposit_payment_method: depNum > 0 ? creditDepositMethod : undefined,
+          payment_reference: `CREDIT-${Date.now().toString().slice(-6)}`,
+        };
       }
 
       const res = processCheckout(
         selectedPaymentMethod,
         undefined,
-        selectedPaymentMethod === 'Cash' ? (cashAmountNum || cartFinalTotal) : cartFinalTotal,
-        changeDueSingle,
+        selectedPaymentMethod === 'Cash'
+          ? (cashAmountNum || cartFinalTotal)
+          : selectedPaymentMethod === 'Credit / Pay Later'
+          ? (Number(creditDeposit) || 0)
+          : cartFinalTotal,
+        selectedPaymentMethod === 'Credit / Pay Later' ? 0 : changeDueSingle,
         paymentMeta
       );
 
@@ -313,7 +372,6 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         setCashTendered('');
         setSingleRef('');
         setIsDiscountPanelOpen(false);
-        setOverrideStaff(null);
         setTimeout(() => setCheckoutSuccess(null), 4000);
       }
     } else {
@@ -397,7 +455,6 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         setSplitThirdAmount('');
         setSplitThirdRef('');
         setIsDiscountPanelOpen(false);
-        setOverrideStaff(null);
         setTimeout(() => setCheckoutSuccess(null), 4000);
       }
     }
@@ -405,23 +462,53 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
 
   const canDirectlyApplyDiscount = hasPermission('CAN_APPLY_DISCOUNT');
 
+  // Evaluated discount rules against active cart
+  const evaluatedRules = useMemo(() => {
+    return discountRules.map(rule => {
+      const evalResult = evaluateDiscountRule(rule, cart, selectedCustomer || null, cartSubtotal);
+      return {
+        rule,
+        ...evalResult,
+      };
+    });
+  }, [discountRules, cart, selectedCustomer, cartSubtotal]);
+
+  // Real-time Cart Profit Margin validation
+  const cartMargin = useMemo(() => {
+    return validateCartProfitMargin();
+  }, [cart, calculatedDiscounts, validateCartProfitMargin]);
+
+  // Detected bulk discount rule qualified by current cart
+  const qualifiedBulkRule = useMemo(() => {
+    return evaluatedRules.find(r => r.isQualified && r.calculatedDiscount > 0 && selectedDiscountRuleId !== r.rule.rule_id);
+  }, [evaluatedRules, selectedDiscountRuleId]);
+
   const handleOpenDiscount = () => {
     setDiscountError(null);
-    if (canDirectlyApplyDiscount) {
-      setOverrideStaff(null);
-      setIsDiscountPanelOpen(true);
-    } else {
-      setIsPinModalOpen(true);
-    }
-  };
-
-  const handlePinSuccess = (authorizedStaff: Employee) => {
-    setIsPinModalOpen(false);
-    setOverrideStaff(authorizedStaff);
     setIsDiscountPanelOpen(true);
   };
 
-  const handleApplyDiscountSubmit = (e?: React.FormEvent) => {
+  const handleSelectRule = (rule: DiscountRule, calculatedDiscount: number) => {
+    setDiscountError(null);
+    if (rule.requires_manager_approval) {
+      setPendingDiscountAuth({
+        title: rule.name,
+        amountNaira: calculatedDiscount,
+        description: rule.description,
+        ruleId: rule.rule_id,
+      });
+      setIsDiscountPinModalOpen(true);
+    } else {
+      const res = applyPreApprovedRule(rule.rule_id);
+      if (!res.success) {
+        setDiscountError(res.error || 'Failed to apply rule');
+      } else {
+        setIsDiscountPanelOpen(false);
+      }
+    }
+  };
+
+  const handleApplyCustomDiscountSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setDiscountError(null);
     const num = parseFloat(discountValue);
@@ -445,20 +532,55 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
       calculatedDiscountNaira = Math.round(num);
     }
 
-    const authName = overrideStaff 
-      ? `${overrideStaff.staff_name} (${overrideStaff.role})`
-      : `${activeStaff.staff_name} (${activeStaff.role})`;
-
     const reason = discountReasonText.trim() 
       ? `${discountReasonText.trim()} (${discountType === 'percent' ? `${num}%` : `₦${num.toLocaleString()}`})`
       : `Manager Approved Discount (${discountType === 'percent' ? `${num}%` : `₦${num.toLocaleString()}`})`;
 
-    const res = applyCustomDiscount(calculatedDiscountNaira, reason, authName);
-    if (!res.success) {
-      setDiscountError(res.error || 'Failed to apply discount.');
+    // Check store maximum discount percentage policy
+    const maxPercentCap = discountSecurityConfig.max_discount_percent_cap || 100;
+    const effectivePercent = cartSubtotal > 0 ? (calculatedDiscountNaira / cartSubtotal) * 100 : 0;
+    if (effectivePercent > maxPercentCap) {
+      setDiscountError(`Proposed discount of ${effectivePercent.toFixed(1)}% exceeds the management policy ceiling of ${maxPercentCap}%.`);
+      return;
+    }
+
+    if (canDirectlyApplyDiscount) {
+      const res = applyCustomDiscount(
+        calculatedDiscountNaira, 
+        reason, 
+        `${activeStaff.staff_name} (${activeStaff.role})`
+      );
+      if (!res.success) {
+        setDiscountError(res.error || 'Failed to apply discount.');
+      } else {
+        setIsDiscountPanelOpen(false);
+      }
     } else {
+      // Cashier enforces discount with Store Discount PIN set by manager
+      setPendingDiscountAuth({
+        title: 'Custom Order Discount',
+        amountNaira: calculatedDiscountNaira,
+        description: reason,
+      });
+      setIsDiscountPinModalOpen(true);
+    }
+  };
+
+  const handleDiscountPinSuccess = (pin: string) => {
+    if (!pendingDiscountAuth) return;
+    const res = applyDiscountWithPin(
+      pin,
+      pendingDiscountAuth.amountNaira,
+      pendingDiscountAuth.description,
+      pendingDiscountAuth.ruleId
+    );
+    if (res.success) {
+      setIsDiscountPinModalOpen(false);
       setIsDiscountPanelOpen(false);
-      setOverrideStaff(null);
+      setPendingDiscountAuth(null);
+      setDiscountError(null);
+    } else {
+      setDiscountError(res.error || 'Invalid Store Discount PIN');
     }
   };
 
@@ -593,7 +715,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search fish by name or SN (e.g., Catfish, FISH-00045)..."
+                placeholder="Search products by name or SKU..."
                 className="w-full pl-11 pr-4 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white text-slate-800 placeholder-slate-400"
               />
               {searchQuery && (
@@ -628,7 +750,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
             {filteredProducts.length === 0 ? (
               <div className="col-span-full py-12 text-center bg-white rounded-xl border border-dashed border-slate-300 p-8">
-                <p className="text-slate-500 font-medium text-sm">No fish items found matching your search.</p>
+                <p className="text-slate-500 font-medium text-sm">No items found matching your search.</p>
                 <button 
                   onClick={() => { setSearchQuery(''); setSelectedCategory('All'); }}
                   className="mt-2 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
@@ -744,7 +866,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                 {selectedCustomer && (
                   <div className="pt-2 border-t border-slate-200 text-xs space-y-2">
                     <div className="flex items-center justify-between text-slate-500 text-[11px]">
-                      <span>Preferred Fish: <strong className="text-slate-700">{selectedCustomer.preferred_product}</strong></span>
+                      <span>Preferred Item: <strong className="text-slate-700">{selectedCustomer.preferred_product}</strong></span>
                       <span>Total Spent: <strong className="text-slate-700">₦{selectedCustomer.total_spent.toLocaleString()}</strong></span>
                     </div>
 
@@ -776,12 +898,12 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
               <div className="mt-3 max-h-52 overflow-y-auto space-y-2 pr-1 divide-y divide-slate-100">
                 {cart.length === 0 ? (
                   <div className="py-8 text-center text-slate-400 text-xs">
-                    Your cart is empty. Select fish products from the catalogue.
+                    Your cart is empty. Select items from the catalogue.
                   </div>
                 ) : (
                   cart.map(item => (
                     <CartItemRow
-                      key={item.item_sn}
+                      key={item.cart_item_id || `${item.item_sn}_${item.sell_unit || 'BASE'}`}
                       item={item}
                       product={products.find(p => p.item_sn === item.item_sn)}
                       onUpdateQuantity={updateCartQuantity}
@@ -795,19 +917,19 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
 
             {/* Bottom Checkout & Payment Section */}
             <div className="mt-4 pt-3 border-t border-slate-200 space-y-3">
-              {/* Discount Controls & Status (Admin & Manager Controlled) */}
+              {/* Discount Controls & Status */}
               <div className="space-y-2">
                 {customDiscount > 0 ? (
-                  <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-300 text-xs flex items-center justify-between">
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-300 text-xs flex items-center justify-between">
                     <div className="flex items-center space-x-2">
-                      <div className="w-7 h-7 rounded-md bg-amber-200/80 text-amber-800 flex items-center justify-center font-bold">
+                      <div className="w-7 h-7 rounded-lg bg-amber-200/80 text-amber-800 flex items-center justify-center font-bold shrink-0">
                         <Tag className="w-3.5 h-3.5" />
                       </div>
                       <div>
                         <div className="font-bold text-amber-900 flex items-center space-x-1.5">
-                          <span>Custom Discount: -₦{customDiscount.toLocaleString()}</span>
-                          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-                            Approved
+                          <span>Discount Applied: -₦{customDiscount.toLocaleString()}</span>
+                          <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-amber-200/60 text-amber-900 border border-amber-300">
+                            Authorized
                           </span>
                         </div>
                         <div className="text-[11px] text-amber-700">
@@ -818,7 +940,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                     <button
                       type="button"
                       onClick={clearDiscount}
-                      className="text-[11px] text-rose-600 hover:text-rose-700 font-semibold underline px-1.5 py-1"
+                      className="text-[11px] text-rose-600 hover:text-rose-700 font-semibold underline px-1.5 py-1 cursor-pointer"
                     >
                       Remove
                     </button>
@@ -830,147 +952,241 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                         type="button"
                         onClick={handleOpenDiscount}
                         disabled={cart.length === 0}
-                        className={`w-full py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all ${
-                          canDirectlyApplyDiscount
-                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                            : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
-                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className="w-full py-2 px-3 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs cursor-pointer"
                       >
-                        {canDirectlyApplyDiscount ? (
-                          <>
-                            <Tag className="w-3.5 h-3.5 text-emerald-700" />
-                            <span>+ Add Discount to Order (Manager / Admin)</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock className="w-3.5 h-3.5 text-amber-700" />
-                            <span>+ Add Discount (Requires Manager / Admin PIN)</span>
-                          </>
-                        )}
+                        <Tag className="w-3.5 h-3.5 text-amber-700" />
+                        <span>+ Apply Discount / Offer (Manager PIN & Bulk Rules)</span>
                       </button>
                     ) : (
-                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-300 text-xs space-y-2.5 animate-fadeIn">
-                        <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-300 text-xs space-y-3 animate-fadeIn">
+                        
+                        {/* Panel Header */}
+                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200">
                           <div className="flex items-center space-x-1.5 font-bold text-slate-800">
-                            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                            <span>Authorize Order Discount</span>
+                            <Tag className="w-4 h-4 text-emerald-600" />
+                            <span>Order Discounts & Offers</span>
                           </div>
-                          <span className="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">
-                            {overrideStaff 
-                              ? `Auth: ${overrideStaff.staff_name} (${overrideStaff.role})`
-                              : `Auth: ${activeStaff.staff_name} (${activeStaff.role})`}
-                          </span>
+
+                          <div className="flex items-center space-x-1.5">
+                            {canManageDiscountPin && (
+                              <button
+                                type="button"
+                                onClick={() => setIsConfigurePinModalOpen(true)}
+                                className="flex items-center space-x-1 text-[11px] text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg font-medium transition-colors cursor-pointer"
+                                title="Set or change the Store Discount PIN"
+                              >
+                                <KeyRound className="w-3 h-3 text-amber-600" />
+                                <span>Set Discount PIN</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsDiscountPanelOpen(false);
+                                setDiscountError(null);
+                              }}
+                              className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
 
                         {discountError && (
-                          <div className="p-1.5 bg-rose-50 border border-rose-200 rounded text-rose-700 text-[11px]">
-                            {discountError}
+                          <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-rose-700 text-[11px] flex items-center space-x-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{discountError}</span>
                           </div>
                         )}
 
-                        <div className="flex space-x-1">
+                        {/* Tabs: Management Pre-Approved Rules vs Custom Override */}
+                        <div className="flex bg-slate-200/80 p-0.5 rounded-lg text-[11px]">
                           <button
                             type="button"
-                            onClick={() => setDiscountType('percent')}
-                            className={`flex-1 py-1 text-xs font-medium rounded ${
-                              discountType === 'percent'
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            onClick={() => setDiscountTab('rules')}
+                            className={`flex-1 py-1 rounded-md font-semibold transition-all ${
+                              discountTab === 'rules'
+                                ? 'bg-white text-slate-900 shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
-                            Percentage (%)
+                            Management Rules ({evaluatedRules.filter(r => r.isQualified).length} Qualified)
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDiscountType('fixed')}
-                            className={`flex-1 py-1 text-xs font-medium rounded ${
-                              discountType === 'fixed'
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            onClick={() => setDiscountTab('custom')}
+                            className={`flex-1 py-1 rounded-md font-semibold transition-all ${
+                              discountTab === 'custom'
+                                ? 'bg-white text-slate-900 shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
-                            Fixed Amount (₦)
+                            Custom Override ({canDirectlyApplyDiscount ? 'Direct' : 'PIN Required'})
                           </button>
                         </div>
 
-                        {discountType === 'percent' && (
-                          <div className="flex space-x-1">
-                            {['5', '10', '15', '20'].map((pct) => (
-                              <button
-                                key={pct}
-                                type="button"
-                                onClick={() => setDiscountValue(pct)}
-                                className={`flex-1 py-1 text-[11px] rounded border ${
-                                  discountValue === pct
-                                    ? 'bg-emerald-100 border-emerald-500 font-bold text-emerald-800'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                        {/* Tab 1: Management Rules */}
+                        {discountTab === 'rules' && (
+                          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                            {evaluatedRules.map(({ rule, isQualified, qualifyingDetails, calculatedDiscount }) => (
+                              <div
+                                key={rule.rule_id}
+                                className={`p-2 rounded-xl border text-xs transition-all ${
+                                  isQualified
+                                    ? 'bg-emerald-50/70 border-emerald-300'
+                                    : 'bg-white border-slate-200 opacity-80'
                                 }`}
                               >
-                                {pct}%
-                              </button>
+                                <div className="flex items-center justify-between gap-1 mb-1">
+                                  <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                                    <span>{rule.name}</span>
+                                    <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                                      rule.discount_type === 'PERCENT'
+                                        ? 'bg-purple-100 text-purple-800'
+                                        : 'bg-emerald-100 text-emerald-800'
+                                    }`}>
+                                      {rule.discount_type === 'PERCENT' ? `${rule.discount_value}% OFF` : `₦${rule.discount_value.toLocaleString()} OFF`}
+                                    </span>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectRule(rule, calculatedDiscount)}
+                                    disabled={!isQualified}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                                      isQualified
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                        : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    {rule.requires_manager_approval ? 'Authorize with PIN' : 'Apply Rule'}
+                                  </button>
+                                </div>
+
+                                <div className="text-[11px] text-slate-500">
+                                  {rule.description}
+                                </div>
+
+                                <div className="mt-1 flex items-center justify-between text-[10px]">
+                                  <span className={isQualified ? 'text-emerald-700 font-medium' : 'text-slate-400'}>
+                                    {qualifyingDetails}
+                                  </span>
+                                  {isQualified && (
+                                    <span className="font-mono font-bold text-emerald-800">
+                                      Save ₦{calculatedDiscount.toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             ))}
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
-                              {discountType === 'percent' ? 'Discount Rate (%)' : 'Discount Amount (₦)'}
-                            </label>
-                            <input
-                              type="number"
-                              value={discountValue}
-                              onChange={(e) => setDiscountValue(e.target.value)}
-                              placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 1000'}
-                              className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
-                              Estimated Cut
-                            </label>
-                            <div className="px-2 py-1.5 bg-slate-100 border border-slate-200 rounded font-mono font-bold text-xs text-slate-800">
-                              -₦{(
-                                discountType === 'percent'
-                                  ? Math.round((cartSubtotal * (parseFloat(discountValue) || 0)) / 100)
-                                  : Math.round(parseFloat(discountValue) || 0)
-                              ).toLocaleString()}
+                        {/* Tab 2: Custom Discount */}
+                        {discountTab === 'custom' && (
+                          <div className="space-y-2.5">
+                            <div className="flex space-x-1">
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType('percent')}
+                                className={`flex-1 py-1 text-xs font-medium rounded ${
+                                  discountType === 'percent'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                                }`}
+                              >
+                                Percentage (%)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDiscountType('fixed')}
+                                className={`flex-1 py-1 text-xs font-medium rounded ${
+                                  discountType === 'fixed'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                                }`}
+                              >
+                                Fixed Amount (₦)
+                              </button>
+                            </div>
+
+                            {discountType === 'percent' && (
+                              <div className="flex space-x-1">
+                                {['5', '10', '15', '20'].map((pct) => (
+                                  <button
+                                    key={pct}
+                                    type="button"
+                                    onClick={() => setDiscountValue(pct)}
+                                    className={`flex-1 py-1 text-[11px] rounded border ${
+                                      discountValue === pct
+                                        ? 'bg-emerald-100 border-emerald-500 font-bold text-emerald-800'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                  >
+                                    {pct}%
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
+                                  {discountType === 'percent' ? 'Discount Rate (%)' : 'Discount Amount (₦)'}
+                                </label>
+                                <input
+                                  type="number"
+                                  value={discountValue}
+                                  onChange={(e) => setDiscountValue(e.target.value)}
+                                  placeholder={discountType === 'percent' ? 'e.g. 5' : 'e.g. 1000'}
+                                  className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
+                                  Estimated Cut
+                                </label>
+                                <div className="px-2 py-1.5 bg-slate-100 border border-slate-200 rounded font-mono font-bold text-xs text-slate-800">
+                                  -₦{(
+                                    discountType === 'percent'
+                                      ? Math.round((cartSubtotal * (parseFloat(discountValue) || 0)) / 100)
+                                      : Math.round(parseFloat(discountValue) || 0)
+                                  ).toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
+                                Reason / Audit Note
+                              </label>
+                              <input
+                                type="text"
+                                value={discountReasonText}
+                                onChange={(e) => setDiscountReasonText(e.target.value)}
+                                placeholder="Reason (e.g. Bulk goodwill, Preferred customer, Clearance)"
+                                className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                              />
+                            </div>
+
+                            <div className="flex space-x-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setIsDiscountPanelOpen(false)}
+                                className="flex-1 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded text-xs cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleApplyCustomDiscountSubmit}
+                                className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs shadow-sm cursor-pointer"
+                              >
+                                {canDirectlyApplyDiscount ? 'Apply Discount' : 'Authorize with Store PIN'}
+                              </button>
                             </div>
                           </div>
-                        </div>
-
-                        <div>
-                          <label className="text-[11px] font-semibold text-slate-600 block mb-0.5">
-                            Reason / Audit Note
-                          </label>
-                          <input
-                            type="text"
-                            value={discountReasonText}
-                            onChange={(e) => setDiscountReasonText(e.target.value)}
-                            placeholder="Reason (e.g., Preferred Customer Agreement, Bulk Goodwill, Clearance)"
-                            className="w-full px-2 py-1.5 bg-white border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
-                        </div>
-
-                        <div className="flex space-x-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsDiscountPanelOpen(false);
-                              setOverrideStaff(null);
-                            }}
-                            className="flex-1 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold rounded text-xs"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleApplyDiscountSubmit}
-                            className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded text-xs shadow-sm"
-                          >
-                            Apply Discount
-                          </button>
-                        </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -985,6 +1201,30 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                     <span>Wholesale Bulk Discount (10% on 50kg+)</span>
                   </span>
                   <span className="font-bold">-₦{calculatedDiscounts.wholesaleDiscount.toLocaleString()}</span>
+                </div>
+              )}
+
+              {/* One-Click Qualified Bulk Discount Alert Banner */}
+              {qualifiedBulkRule && (
+                <div className="flex items-center justify-between p-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-lg text-xs animate-in fade-in duration-300">
+                  <div className="flex items-center space-x-2 overflow-hidden pr-2">
+                    <div className="w-6 h-6 rounded-md bg-purple-600 text-white flex items-center justify-center shrink-0">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-bold text-purple-950 block truncate text-[11px]">{qualifiedBulkRule.rule.name}</span>
+                      <span className="text-[10px] text-purple-700 font-semibold block truncate">
+                        Qualified for ₦{qualifiedBulkRule.calculatedDiscount.toLocaleString()} bulk discount savings!
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectRule(qualifiedBulkRule.rule, qualifiedBulkRule.calculatedDiscount)}
+                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white rounded-md text-[11px] font-bold shadow-xs cursor-pointer shrink-0 transition-all"
+                  >
+                    Apply Rule
+                  </button>
                 </div>
               )}
 
@@ -1013,6 +1253,45 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                   <div className="flex justify-between text-emerald-700 font-bold pt-1 border-t border-slate-200">
                     <span>Total Discount Savings</span>
                     <span>-₦{calculatedDiscounts.totalDiscount.toLocaleString()}</span>
+                  </div>
+                )}
+
+                {Boolean(calculatedDiscounts.disallowedDiscount && calculatedDiscounts.disallowedDiscount > 0) && (
+                  <div className="flex items-center justify-between text-[11px] bg-sky-50 text-sky-800 p-2 rounded-lg border border-sky-200">
+                    <span className="flex items-center space-x-1 font-semibold">
+                      <ShieldCheck className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                      <span>Best Discount Policy Active</span>
+                    </span>
+                    <span className="font-bold text-sky-700">Protected: ₦{Number(calculatedDiscounts.disallowedDiscount || 0).toLocaleString()}</span>
+                  </div>
+                )}
+
+                {/* Real-Time Gross Profit & Profit Margin Widget */}
+                {cart.length > 0 && (
+                  <div className={`flex items-center justify-between text-[11px] p-2 rounded-lg border font-mono ${
+                    cartMargin.projectedMarginPercent >= 20 
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                      : cartMargin.projectedMarginPercent >= 5
+                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`} title={`Wholesale Acquisition Cost: ₦${cartMargin.totalCost.toLocaleString()} | Projected Gross Profit: ₦${cartMargin.projectedGrossProfit.toLocaleString()}`}>
+                    <span className="flex items-center space-x-1 font-semibold">
+                      <Percent className="w-3.5 h-3.5 shrink-0" />
+                      <span>Gross Profit / Margin:</span>
+                    </span>
+                    <span className="font-bold">
+                      ₦{cartMargin.projectedGrossProfit.toLocaleString()} ({cartMargin.projectedMarginPercent}%)
+                    </span>
+                  </div>
+                )}
+
+                {calculatedDiscounts.profitMarginValid === false && (
+                  <div className="flex items-center justify-between text-[11px] bg-rose-50 text-rose-800 p-2 rounded-lg border border-rose-200">
+                    <span className="flex items-center space-x-1 font-semibold">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                      <span>Breaches Cost Floor</span>
+                    </span>
+                    <span className="font-bold text-rose-700">-₦{Math.abs(Number(calculatedDiscounts.grossMarginRemaining) || 0).toLocaleString()} below cost</span>
                   </div>
                 )}
 
@@ -1070,11 +1349,12 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                 {/* SINGLE PAYMENT MODE */}
                 {paymentMode === 'single' ? (
                   <div className="space-y-2.5">
-                    <div className="grid grid-cols-3 gap-1.5 text-xs">
+                    <div className="grid grid-cols-4 gap-1.5 text-xs">
                       {[
                         { id: 'Cash', label: 'Cash', icon: Banknote },
-                        { id: 'Bank Transfer', label: 'Bank Transfer', icon: Building2 },
+                        { id: 'Bank Transfer', label: 'Transfer', icon: Building2 },
                         { id: 'POS', label: 'POS Terminal', icon: CreditCard },
+                        { id: 'Credit / Pay Later', label: 'Credit / Debt', icon: Clock },
                       ].map(m => {
                         const Icon = m.icon;
                         const isSelected = selectedPaymentMethod === m.id;
@@ -1089,12 +1369,114 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                             }`}
                           >
-                            <Icon className="w-4 h-4 mb-1 text-emerald-500" />
+                            <Icon className={`w-4 h-4 mb-1 ${m.id === 'Credit / Pay Later' ? 'text-indigo-400' : 'text-emerald-500'}`} />
                             <span className="text-[11px] font-semibold">{m.label}</span>
                           </button>
                         );
                       })}
                     </div>
+
+                    {/* Dedicated Credit / Pay Later Terms Panel */}
+                    {selectedPaymentMethod === 'Credit / Pay Later' && cart.length > 0 && (
+                      <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-200 text-xs space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-indigo-950 flex items-center space-x-1.5">
+                            <Clock className="w-4 h-4 text-indigo-600" />
+                            <span>Customer Credit & Debt Terms</span>
+                          </span>
+                          {selectedCustomer && selectedCustomerId !== 'Walk-in' && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                              {selectedCustomer.full_name}
+                            </span>
+                          )}
+                        </div>
+
+                        {(!selectedCustomer || selectedCustomerId === 'Walk-in') ? (
+                          <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-lg text-amber-900 text-xs flex items-center space-x-2">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>Registered Customer Required:</strong> Select a customer account above to authorize and record credit sales.
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2 text-[11px]">
+                              <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                                <span className="text-slate-500 block">Current Balance / Debt:</span>
+                                <span className={`font-mono font-bold ${(Number(selectedCustomer.balance) || 0) > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  ₦{(Number(selectedCustomer.balance) || 0).toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                                <span className="text-slate-500 block">Total Debt After Sale:</span>
+                                <span className="font-mono font-bold text-indigo-900">
+                                  ₦{((Number(selectedCustomer.balance) || 0) + Math.max(0, cartFinalTotal - (Number(creditDeposit) || 0))).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                                  Down Payment / Deposit (₦)
+                                </label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={cartFinalTotal}
+                                  value={creditDeposit}
+                                  onChange={(e) => setCreditDeposit(e.target.value)}
+                                  placeholder="0 (if full credit)"
+                                  className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-right font-mono font-bold text-xs focus:ring-1 focus:ring-indigo-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                                  Settlement Due Date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={creditDueDate}
+                                  onChange={(e) => setCreditDueDate(e.target.value)}
+                                  className="w-full p-2 bg-white border border-indigo-200 rounded-lg text-xs font-semibold text-slate-800 focus:ring-1 focus:ring-indigo-500"
+                                />
+                              </div>
+                            </div>
+
+                            {(Number(creditDeposit) || 0) > 0 && (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                                  Deposit Payment Channel
+                                </label>
+                                <div className="grid grid-cols-3 gap-1 text-[10px]">
+                                  {(['Cash', 'POS', 'Bank Transfer'] as const).map(m => (
+                                    <button
+                                      key={m}
+                                      type="button"
+                                      onClick={() => setCreditDepositMethod(m)}
+                                      className={`py-1 rounded font-semibold border ${
+                                        creditDepositMethod === m
+                                          ? 'bg-indigo-600 text-white border-indigo-600'
+                                          : 'bg-white text-slate-700 border-slate-200'
+                                      }`}
+                                    >
+                                      {m}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="p-2 bg-white rounded-lg border border-indigo-100 flex justify-between items-center text-xs">
+                              <span className="text-slate-600 font-medium">Debt Incurred Today:</span>
+                              <span className="font-mono font-black text-rose-600 text-sm">
+                                ₦{Math.max(0, cartFinalTotal - (Number(creditDeposit) || 0)).toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Cash Tendered Calculator (if Cash chosen) */}
                     {selectedPaymentMethod === 'Cash' && cart.length > 0 && (
@@ -1557,16 +1939,29 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
 
       </div>
 
-      {/* Security PIN Authorization Modal for Discounts (Manager or Admin PIN Required) */}
-      <PinAuthModal
-        isOpen={isPinModalOpen}
-        onClose={() => setIsPinModalOpen(false)}
-        title="Manager / Admin Discount Authorization"
-        subtitle="Enter 4-digit PIN of a Manager or Admin to authorize customer discount on this order"
-        requiredRole={['Manager', 'Admin']}
-        mode="OVERRIDE"
-        actionDescription="Apply custom order discount to customer checkout"
-        onSuccess={handlePinSuccess}
+      {/* Dedicated Store Discount PIN Modal for Cashier Authorization */}
+      <DiscountPinModal
+        isOpen={isDiscountPinModalOpen}
+        onClose={() => {
+          setIsDiscountPinModalOpen(false);
+          setPendingDiscountAuth(null);
+        }}
+        discountSummary={pendingDiscountAuth ? {
+          title: pendingDiscountAuth.title,
+          amountNaira: pendingDiscountAuth.amountNaira,
+          description: pendingDiscountAuth.description,
+        } : {
+          title: 'Store Discount',
+          amountNaira: 0,
+          description: '',
+        }}
+        onSuccess={handleDiscountPinSuccess}
+      />
+
+      {/* Configure Store Discount PIN Modal for Managers & Admins */}
+      <ConfigureDiscountPinModal
+        isOpen={isConfigurePinModalOpen}
+        onClose={() => setIsConfigurePinModalOpen(false)}
       />
 
       {/* Scale Reading & Weight Override Modal */}

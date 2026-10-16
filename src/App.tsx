@@ -15,9 +15,13 @@ import { LoginAuthModal } from './components/auth/LoginAuthModal';
 import { StaffManagerModal } from './components/admin/StaffManagerModal';
 import { StaffAndRolesManager } from './components/admin/StaffAndRolesManager';
 import { FactoryResetModal } from './components/admin/FactoryResetModal';
+import { BackupRestoreModal } from './components/admin/BackupRestoreModal';
+import { LegacyDataMigrationModal } from './components/admin/LegacyDataMigrationModal';
 import { CashReconciliationManager } from './components/finance/CashReconciliationManager';
 import { PosTerminalSetupManager } from './components/pos/PosTerminalSetupManager';
+import { CashDrawerTreasuryManager } from './components/finance/CashDrawerTreasuryManager';
 import { CycleCountModal } from './components/inventory/CycleCountModal';
+import { CycleCountManager } from './components/inventory/CycleCountManager';
 import { StockTransferModal } from './components/inventory/StockTransferModal';
 import { ReceiptBrandingManager } from './components/admin/ReceiptBrandingManager';
 import { SaleTransaction, UserRole } from './types';
@@ -34,6 +38,8 @@ function MainApp() {
     isAuthModalOpen,
     authModalMode,
     closeLoginModal,
+    isBackupModalOpen,
+    closeBackupModal,
     isFactoryResetModalOpen,
     closeFactoryResetModal,
   } = usePos();
@@ -119,8 +125,8 @@ function MainApp() {
   useEffect(() => {
     const role = activeStaff.role;
     const restrictedTabsForRole: Record<UserRole, string[]> = {
-      Cashier: ['inventory', 'suppliers', 'reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'customers', 'receipt_settings'],
-      Supervisor: ['reports', 'audit', 'staff', 'reconciliation', 'pos_setup', 'receipt_settings'],
+      Cashier: ['inventory', 'suppliers', 'reports', 'audit', 'staff', 'treasury', 'reconciliation', 'pos_setup', 'customers', 'receipt_settings'],
+      Supervisor: ['reports', 'audit', 'staff', 'treasury', 'reconciliation', 'pos_setup', 'receipt_settings'],
       Manager: ['staff'],
       Admin: [],
       'Super Admin': [],
@@ -238,16 +244,20 @@ function MainApp() {
               <AuditLogManager />
             )}
 
-            {currentTab === 'reconciliation' && !isCashier && !isSupervisor && (
-              <CashReconciliationManager onOpenPosSetup={() => setCurrentTab('pos_setup')} />
+            {(currentTab === 'treasury' || currentTab === 'reconciliation') && !isCashier && !isSupervisor && (
+              <CashDrawerTreasuryManager initialTab="drawers" />
             )}
 
             {currentTab === 'pos_setup' && !isCashier && !isSupervisor && (
-              <PosTerminalSetupManager />
+              <CashDrawerTreasuryManager initialTab="terminals_banks" />
             )}
 
             {currentTab === 'receipt_settings' && !isCashier && !isSupervisor && (
               <ReceiptBrandingManager />
+            )}
+
+            {currentTab === 'cycle_count' && !isCashier && (
+              <CycleCountManager />
             )}
 
             {currentTab === 'staff' && !isCashier && !isSupervisor && (activeStaff.role === 'Admin' || activeStaff.role === 'Super Admin') && (
@@ -288,10 +298,12 @@ function MainApp() {
       )}
 
       {/* Cycle Count Modal (Supervisor, Manager, Admin) */}
-      <CycleCountModal
-        isOpen={isCycleCountOpen}
-        onClose={() => setIsCycleCountOpen(false)}
-      />
+      <ErrorBoundary fallbackTitle="Cycle Count Error" fallbackMessage="Unable to render Cycle Count Modal.">
+        <CycleCountModal
+          isOpen={isCycleCountOpen}
+          onClose={() => setIsCycleCountOpen(false)}
+        />
+      </ErrorBoundary>
 
       {/* Stock Transfer Modal (Manager, Admin) */}
       <StockTransferModal
@@ -310,6 +322,15 @@ function MainApp() {
         isOpen={isFactoryResetModalOpen}
         onClose={closeFactoryResetModal}
       />
+
+      {/* Accessible Data Backup & Restore Modal (All Staff) */}
+      <BackupRestoreModal
+        isOpen={isBackupModalOpen}
+        onClose={closeBackupModal}
+      />
+
+      {/* Legacy Data Migration & Third-Party Import Module */}
+      <LegacyDataMigrationModal />
     </div>
   );
 }

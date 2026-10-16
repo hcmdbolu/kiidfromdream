@@ -15,19 +15,26 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 80mm;
+    width: 72mm;
+    max-width: 72mm;
     margin: 0;
-    padding: 8px;
+    padding: 2mm 3.5mm;
     background: white !important;
     color: black !important;
+    line-height: 1.25;
+    font-size: 10px;
   }
   #printable-receipt.receipt-58mm {
-    width: 58mm;
-    padding: 4px;
+    width: 52mm;
+    max-width: 52mm;
+    padding: 1.5mm 2.5mm;
+    font-size: 9px;
   }
   #printable-receipt.receipt-80mm {
-    width: 80mm;
-    padding: 8px;
+    width: 72mm;
+    max-width: 72mm;
+    padding: 2.5mm 3.5mm;
+    font-size: 10px;
   }
   #printable-daily-report, #printable-daily-report * {
     visibility: visible;
