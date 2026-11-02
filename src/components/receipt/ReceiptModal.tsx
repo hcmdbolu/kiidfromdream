@@ -246,13 +246,90 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
                 </div>
               )}
 
-              <div className="flex justify-between text-[12.5px] font-black text-slate-950 pt-1 border-t border-slate-300">
-                <span>TOTAL PAID:</span>
-                <span className="font-mono">₦{transaction.final_amount.toLocaleString()}</span>
-              </div>
+              {transaction.payment_method === 'Credit / Pay Later' ? (
+                <div className="space-y-1.5 pt-1 border-t border-slate-300">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-800">
+                    <span>INVOICE TOTAL:</span>
+                    <span className="font-mono">₦{transaction.final_amount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                    <span>DEPOSIT PAID TODAY:</span>
+                    <span className="font-mono font-black">₦{(transaction.deposit_amount || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px] font-black text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-300">
+                    <span>DEBT INCURRED TODAY:</span>
+                    <span className="font-mono">₦{(transaction.credit_amount ?? Math.max(0, transaction.final_amount - (transaction.deposit_amount || 0))).toLocaleString()}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-between text-[12.5px] font-black text-slate-950 pt-1 border-t border-slate-300">
+                  <span>TOTAL PAID:</span>
+                  <span className="font-mono">₦{transaction.final_amount.toLocaleString()}</span>
+                </div>
+              )}
 
               {/* Payment Method / Split Details */}
-              {transaction.payment_splits && transaction.payment_splits.length > 0 ? (
+              {transaction.payment_method === 'Credit / Pay Later' ? (
+                <div className="bg-indigo-50/70 p-2 rounded border border-indigo-200 text-[9px] space-y-1 my-1">
+                  <div className="font-bold text-indigo-950 flex justify-between uppercase">
+                    <span>TERMS:</span>
+                    <span className="text-indigo-800 font-black">CREDIT / DEBT SALE</span>
+                  </div>
+                  {(transaction.deposit_amount || 0) > 0 ? (
+                    <div className="pt-0.5 space-y-0.5 border-t border-indigo-200/60 text-slate-700">
+                      <div className="flex justify-between font-semibold">
+                        <span>Deposit Channel:</span>
+                        <span className="font-bold text-slate-900">{transaction.deposit_payment_method || 'Cash'}</span>
+                      </div>
+                      {transaction.pos_terminal_name && (
+                        <div className="flex justify-between text-purple-900 font-mono">
+                          <span>POS Device:</span>
+                          <span className="font-bold">{transaction.pos_terminal_name}</span>
+                        </div>
+                      )}
+                      {transaction.bank_name && !transaction.pos_terminal_name && (
+                        <div className="flex justify-between text-blue-900 font-mono">
+                          <span>Bank Account:</span>
+                          <span className="font-bold">{transaction.bank_name} ({transaction.bank_account_number})</span>
+                        </div>
+                      )}
+                      {transaction.payment_reference && transaction.payment_reference !== 'CASH-DRAWER' && (
+                        <div className="flex justify-between text-slate-600 font-mono">
+                          <span>Deposit Ref / Slip:</span>
+                          <span>{transaction.payment_reference}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-slate-500 font-semibold italic text-[8.5px]">Zero Down Payment (100% Credit Purchase)</div>
+                  )}
+
+                  <div className="pt-1 border-t border-indigo-200/60 space-y-0.5 text-slate-700">
+                    <div className="flex justify-between font-semibold">
+                      <span>Settlement Due Date:</span>
+                      <span className="font-bold text-indigo-950 font-mono">{transaction.payment_due_date || 'Within 14 Days'}</span>
+                    </div>
+                    {customer && (
+                      <>
+                        <div className="flex justify-between text-slate-600">
+                          <span>Previous Debt:</span>
+                          <span className="font-mono">₦{Math.max(0, (Number(customer.balance) || 0) - (Number(transaction.credit_amount) || Math.max(0, transaction.final_amount - (transaction.deposit_amount || 0)))).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-black text-rose-700 border-t border-indigo-200 pt-0.5">
+                          <span>Total Balance Owed:</span>
+                          <span className="font-mono">₦{(Number(customer.balance) || 0).toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="pt-2 text-[8px] text-slate-500 italic text-center">
+                    I acknowledge receipt of the above items and agree to settle the outstanding debt of ₦{(transaction.credit_amount ?? Math.max(0, transaction.final_amount - (transaction.deposit_amount || 0))).toLocaleString()} on or before {transaction.payment_due_date || 'due date'}.
+                    <div className="border-b border-dashed border-slate-400 mt-4 mx-4 mb-1"></div>
+                    <div className="font-sans font-semibold text-slate-600">Customer Authorized Signature</div>
+                  </div>
+                </div>
+              ) : transaction.payment_splits && transaction.payment_splits.length > 0 ? (
                 <div className="bg-slate-50 p-1.5 rounded border border-slate-200 text-[9px] space-y-0.5 my-1">
                   <div className="font-bold text-slate-800 flex justify-between">
                     <span>MODE:</span>

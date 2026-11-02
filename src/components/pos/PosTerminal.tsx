@@ -126,6 +126,8 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
   const [splitSecondPosTerminalId, setSplitSecondPosTerminalId] = useState<string>('');
   const [splitSecondBankAccountId, setSplitSecondBankAccountId] = useState<string>('');
+  const [creditDepositPosTerminalId, setCreditDepositPosTerminalId] = useState<string>('');
+  const [creditDepositBankAccountId, setCreditDepositBankAccountId] = useState<string>('');
   const [copiedBankAcc, setCopiedBankAcc] = useState(false);
 
   useEffect(() => {
@@ -135,7 +137,10 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
     if (!splitSecondPosTerminalId && defaultPosDevice) {
       setSplitSecondPosTerminalId(defaultPosDevice.id);
     }
-  }, [defaultPosDevice, selectedPosTerminalId, splitSecondPosTerminalId]);
+    if (!creditDepositPosTerminalId && defaultPosDevice) {
+      setCreditDepositPosTerminalId(defaultPosDevice.id);
+    }
+  }, [defaultPosDevice, selectedPosTerminalId, splitSecondPosTerminalId, creditDepositPosTerminalId]);
 
   useEffect(() => {
     if (!selectedBankAccountId && defaultBankAccount) {
@@ -144,7 +149,10 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
     if (!splitSecondBankAccountId && defaultBankAccount) {
       setSplitSecondBankAccountId(defaultBankAccount.id);
     }
-  }, [defaultBankAccount, selectedBankAccountId, splitSecondBankAccountId]);
+    if (!creditDepositBankAccountId && defaultBankAccount) {
+      setCreditDepositBankAccountId(defaultBankAccount.id);
+    }
+  }, [defaultBankAccount, selectedBankAccountId, splitSecondBankAccountId, creditDepositBankAccountId]);
 
   // Multi-Order & Walk-in Queue Modals
   const [isParkPromptOpen, setIsParkPromptOpen] = useState(false);
@@ -173,6 +181,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   // Credit / Pay Later Terms State
   const [creditDeposit, setCreditDeposit] = useState<string>('0');
   const [creditDepositMethod, setCreditDepositMethod] = useState<'Cash' | 'POS' | 'Bank Transfer'>('Cash');
+  const [creditDepositRef, setCreditDepositRef] = useState<string>('');
   const [creditDueDate, setCreditDueDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 14);
@@ -343,13 +352,44 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
       } else if (selectedPaymentMethod === 'Credit / Pay Later') {
         const depNum = Math.max(0, Number(creditDeposit) || 0);
         const creditAmt = Math.max(0, cartFinalTotal - depNum);
+        
+        let depositMeta: {
+          pos_terminal_id?: string;
+          pos_terminal_name?: string;
+          bank_account_id?: string;
+          bank_account_number?: string;
+          bank_name?: string;
+        } = {};
+
+        if (depNum > 0) {
+          if (creditDepositMethod === 'POS') {
+            const term = posTerminals.find(t => t.id === creditDepositPosTerminalId) || activePosDevices[0];
+            depositMeta = {
+              pos_terminal_id: term?.id,
+              pos_terminal_name: term?.name,
+              bank_account_number: term?.account_number,
+              bank_name: term?.bank_name,
+            };
+          } else if (creditDepositMethod === 'Bank Transfer') {
+            const bank = posTerminals.find(t => t.id === creditDepositBankAccountId) || activeBankAccounts[0];
+            depositMeta = {
+              bank_account_id: bank?.id,
+              pos_terminal_id: bank?.id,
+              pos_terminal_name: bank?.name,
+              bank_account_number: bank?.account_number,
+              bank_name: bank?.bank_name,
+            };
+          }
+        }
+
         paymentMeta = {
           credit_amount: creditAmt,
           deposit_amount: depNum,
           balance_due: creditAmt,
           payment_due_date: creditDueDate,
           deposit_payment_method: depNum > 0 ? creditDepositMethod : undefined,
-          payment_reference: `CREDIT-${Date.now().toString().slice(-6)}`,
+          payment_reference: depNum > 0 && creditDepositRef.trim() ? creditDepositRef.trim() : `CREDIT-${Date.now().toString().slice(-6)}`,
+          ...depositMeta,
         };
       }
 
@@ -371,6 +411,8 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         setCheckoutSuccess(`Sale completed! Receipt TXN ${res.transaction?.transaction_id} generated.`);
         setCashTendered('');
         setSingleRef('');
+        setCreditDeposit('0');
+        setCreditDepositRef('');
         setIsDiscountPanelOpen(false);
         setTimeout(() => setCheckoutSuccess(null), 4000);
       }
@@ -1444,26 +1486,133 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
                             </div>
 
                             {(Number(creditDeposit) || 0) > 0 && (
-                              <div>
-                                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
-                                  Deposit Payment Channel
-                                </label>
-                                <div className="grid grid-cols-3 gap-1 text-[10px]">
-                                  {(['Cash', 'POS', 'Bank Transfer'] as const).map(m => (
-                                    <button
-                                      key={m}
-                                      type="button"
-                                      onClick={() => setCreditDepositMethod(m)}
-                                      className={`py-1 rounded font-semibold border ${
-                                        creditDepositMethod === m
-                                          ? 'bg-indigo-600 text-white border-indigo-600'
-                                          : 'bg-white text-slate-700 border-slate-200'
-                                      }`}
-                                    >
-                                      {m}
-                                    </button>
-                                  ))}
+                              <div className="space-y-2 pt-1 border-t border-indigo-200/60">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                                    Deposit Payment Channel
+                                  </label>
+                                  <div className="grid grid-cols-3 gap-1 text-[10px]">
+                                    {(['Cash', 'POS', 'Bank Transfer'] as const).map(m => (
+                                      <button
+                                        key={m}
+                                        type="button"
+                                        onClick={() => setCreditDepositMethod(m)}
+                                        className={`py-1 rounded font-semibold border transition-all ${
+                                          creditDepositMethod === m
+                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {m}
+                                      </button>
+                                    ))}
+                                  </div>
                                 </div>
+
+                                {/* POS Terminal Selection for Credit Deposit */}
+                                {creditDepositMethod === 'POS' && (
+                                  <div className="p-2.5 bg-white rounded-lg border border-indigo-200 space-y-2 animate-in fade-in duration-150">
+                                    <label className="text-[10px] font-bold text-slate-700 flex items-center space-x-1">
+                                      <CreditCard className="w-3 h-3 text-purple-600" />
+                                      <span>Deposit Destination POS Terminal:</span>
+                                    </label>
+                                    {activePosDevices.length > 0 ? (
+                                      <select
+                                        value={creditDepositPosTerminalId}
+                                        onChange={(e) => setCreditDepositPosTerminalId(e.target.value)}
+                                        className="w-full py-1.5 px-2 bg-slate-50 border border-slate-300 rounded text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      >
+                                        {activePosDevices.map(term => (
+                                          <option key={term.id} value={term.id}>
+                                            {term.name} ({term.provider} - {term.terminal_id || term.account_number}) {term.is_default ? '★ Default' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <div className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded">
+                                        No active POS terminals configured.
+                                      </div>
+                                    )}
+                                    <div>
+                                      <label className="text-[9px] font-semibold text-slate-500 block mb-0.5">
+                                        POS Slip RRN / Ref (Optional):
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={creditDepositRef}
+                                        onChange={(e) => setCreditDepositRef(e.target.value)}
+                                        placeholder="e.g. MONIEPOINT-RRN-9921"
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-[11px] font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Bank Transfer Account Selection for Credit Deposit */}
+                                {creditDepositMethod === 'Bank Transfer' && (
+                                  <div className="p-2.5 bg-white rounded-lg border border-indigo-200 space-y-2 animate-in fade-in duration-150">
+                                    <label className="text-[10px] font-bold text-slate-700 flex items-center space-x-1">
+                                      <Building2 className="w-3 h-3 text-blue-600" />
+                                      <span>Deposit Destination Bank Account:</span>
+                                    </label>
+                                    {activeBankAccounts.length > 0 ? (
+                                      <select
+                                        value={creditDepositBankAccountId}
+                                        onChange={(e) => setCreditDepositBankAccountId(e.target.value)}
+                                        className="w-full py-1.5 px-2 bg-slate-50 border border-slate-300 rounded text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      >
+                                        {activeBankAccounts.map(bank => (
+                                          <option key={bank.id} value={bank.id}>
+                                            {bank.name} — {bank.bank_name} ({bank.account_number}) {bank.is_default ? '★ Default' : ''}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <div className="text-[10px] text-amber-700 bg-amber-50 p-1.5 rounded">
+                                        No active bank accounts configured.
+                                      </div>
+                                    )}
+
+                                    {/* Bank Details Card with Copy */}
+                                    {(() => {
+                                      const bank = posTerminals.find(b => b.id === creditDepositBankAccountId) || activeBankAccounts[0];
+                                      if (!bank) return null;
+                                      return (
+                                        <div className="p-2 bg-blue-50/70 rounded border border-blue-200 text-[10px] flex items-center justify-between">
+                                          <div>
+                                            <span className="font-bold text-blue-950">{bank.bank_name}: </span>
+                                            <span className="font-mono font-bold text-slate-900">{bank.account_number}</span>
+                                            <div className="text-[9px] text-slate-600 truncate">{bank.account_name}</div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              navigator.clipboard.writeText(bank.account_number);
+                                              setCopiedBankAcc(true);
+                                              setTimeout(() => setCopiedBankAcc(false), 2000);
+                                            }}
+                                            className="px-2 py-1 bg-white border border-blue-300 rounded text-blue-700 font-bold hover:bg-blue-50 shrink-0 text-[10px]"
+                                          >
+                                            {copiedBankAcc ? 'Copied!' : 'Copy'}
+                                          </button>
+                                        </div>
+                                      );
+                                    })()}
+
+                                    <div>
+                                      <label className="text-[9px] font-semibold text-slate-500 block mb-0.5">
+                                        Bank Session ID / Sender Name (Optional):
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={creditDepositRef}
+                                        onChange={(e) => setCreditDepositRef(e.target.value)}
+                                        placeholder="e.g. OPAY-SESSION-9921 or sender"
+                                        className="w-full px-2 py-1 bg-slate-50 border border-slate-300 rounded text-[11px] font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
 

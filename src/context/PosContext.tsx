@@ -194,6 +194,7 @@ interface PosContextType {
     paymentMeta?: {
       pos_terminal_id?: string;
       pos_terminal_name?: string;
+      bank_account_id?: string;
       bank_account_number?: string;
       bank_name?: string;
       payment_reference?: string;
@@ -1831,6 +1832,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     paymentMeta?: {
       pos_terminal_id?: string;
       pos_terminal_name?: string;
+      bank_account_id?: string;
       bank_account_number?: string;
       bank_name?: string;
       payment_reference?: string;
@@ -1958,6 +1960,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       change_due: isCredit ? 0 : changeDue,
       pos_terminal_id: paymentMeta?.pos_terminal_id,
       pos_terminal_name: paymentMeta?.pos_terminal_name,
+      bank_account_id: paymentMeta?.bank_account_id,
       bank_account_number: paymentMeta?.bank_account_number,
       bank_name: paymentMeta?.bank_name,
       payment_reference: paymentMeta?.payment_reference,
@@ -2926,7 +2929,23 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return;
           }
         }
-        if (sale.pos_terminal_id === term.id || (term.type === 'BANK_TRANSFER_ACCOUNT' && sale.bank_name === term.bank_name && (sale.bank_account_number === term.account_number || !sale.bank_account_number))) {
+        if (sale.payment_method === 'Credit / Pay Later') {
+          const depAmt = Number(sale.deposit_amount) || 0;
+          if (depAmt > 0) {
+            const matchesTerminal = sale.pos_terminal_id === term.id;
+            const matchesBank = term.type === 'BANK_TRANSFER_ACCOUNT' && (
+              sale.bank_account_id === term.id ||
+              sale.pos_terminal_id === term.id ||
+              (sale.bank_name === term.bank_name && (sale.bank_account_number === term.account_number || !sale.bank_account_number))
+            );
+
+            if ((sale.deposit_payment_method === 'POS' && matchesTerminal) ||
+                (sale.deposit_payment_method === 'Bank Transfer' && (matchesBank || matchesTerminal))) {
+              salesCount++;
+              salesGrossVolume += depAmt;
+            }
+          }
+        } else if (sale.pos_terminal_id === term.id || (term.type === 'BANK_TRANSFER_ACCOUNT' && sale.bank_name === term.bank_name && (sale.bank_account_number === term.account_number || !sale.bank_account_number))) {
           salesCount++;
           salesGrossVolume += sale.final_amount;
         } else if (Array.isArray(sale.payment_splits)) {

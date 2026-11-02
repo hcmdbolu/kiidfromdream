@@ -51,6 +51,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     suppliers,
     posTerminals,
     cashTransfers,
+    customerDebtRepayments,
     getCashierDrawerSummary,
     syncStatus,
     lastSyncTime,
@@ -184,6 +185,12 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     return voidedOrders.filter(v => matchesDateRange(v.date_time || (v as any).voided_at || (v as any).timestamp));
   }, [voidedOrders, dateRange, customStartDate, customEndDate]);
 
+  // Filtered debt repayments based on selected date range
+  const relevantDebtRepayments = useMemo(() => {
+    if (dateRange === 'all') return customerDebtRepayments;
+    return customerDebtRepayments.filter(r => matchesDateRange(r.date_time));
+  }, [customerDebtRepayments, dateRange, customStartDate, customEndDate]);
+
   // Executive P&L Financial Calculations with Dynamic Discount & Refund Deductions (Gross Sales, Discounts, Net Sales, Net COGS, Gross Profit)
   // Audited Multi-Item Historical COGS: Prioritizes item.cost_price recorded at time of sale over catalog cost
   const { 
@@ -306,7 +313,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   const totalCogs = netCogs;
   const totalQuantitySold = netQuantitySold;
 
-  // Comprehensive Payment Mode Reconciliation with Refund Deductions (Cash, Transfer, and POS)
+  // Comprehensive Payment Mode Reconciliation with Refund Deductions (Cash, Transfer, POS, Credit Deposits, & Debt Repayments)
   const paymentReconciliation = useMemo(() => {
     let cashGross = 0;
     let cashCount = 0;
@@ -317,8 +324,12 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     let posGross = 0;
     let posCount = 0;
 
-    let otherGross = 0;
-    let otherCount = 0;
+    let creditReceivablesIssued = 0;
+    let creditSalesCount = 0;
+
+    let directSalesCollections = 0;
+    let creditDownPaymentsCollected = 0;
+    let debtRecoveriesCollected = 0;
 
     let splitTxCount = 0;
     let splitTotalAmount = 0;
@@ -331,36 +342,86 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           if (split.method === 'Cash') {
             cashGross += split.amount;
             cashCount++;
+            directSalesCollections += split.amount;
           } else if (split.method === 'Bank Transfer') {
             transferGross += split.amount;
             transferCount++;
+            directSalesCollections += split.amount;
           } else if (split.method === 'POS' || split.method === 'Debit/Credit Card') {
             posGross += split.amount;
             posCount++;
-          } else {
-            otherGross += split.amount;
-            otherCount++;
+            directSalesCollections += split.amount;
           }
         });
+      } else if (s.payment_method === 'Credit / Pay Later') {
+        creditSalesCount++;
+        const depAmt = Number(s.deposit_amount) || 0;
+        const unpaidDebt = Math.max(0, (Number(s.final_amount) || 0) - depAmt);
+        creditReceivablesIssued += unpaidDebt;
+
+        if (depAmt > 0) {
+          creditDownPaymentsCollected += depAmt;
+          if (s.deposit_payment_method === 'Cash') {
+            cashGross += depAmt;
+            cashCount++;
+          } else if (s.deposit_payment_method === 'Bank Transfer') {
+            transferGross += depAmt;
+            transferCount++;
+          } else if (s.deposit_payment_method === 'POS' || s.deposit_payment_method === 'Debit/Credit Card') {
+            posGross += depAmt;
+            posCount++;
+          } else {
+            cashGross += depAmt;
+            cashCount++;
+          }
+        }
       } else {
         if (s.payment_method === 'Cash') {
           cashGross += s.final_amount;
           cashCount++;
+          directSalesCollections += s.final_amount;
         } else if (s.payment_method === 'Bank Transfer') {
           transferGross += s.final_amount;
           transferCount++;
+          directSalesCollections += s.final_amount;
         } else if (s.payment_method === 'POS' || s.payment_method === 'Debit/Credit Card') {
           posGross += s.final_amount;
           posCount++;
+          directSalesCollections += s.final_amount;
         } else if (s.payment_method === 'Split Payment') {
           splitTxCount++;
           splitTotalAmount += s.final_amount;
           cashGross += s.final_amount;
           cashCount++;
-        } else {
-          otherGross += s.final_amount;
-          otherCount++;
+          directSalesCollections += s.final_amount;
         }
+      }
+    });
+
+    // Also include debt repayments collected during this period
+    let debtCashCollected = 0;
+    let debtTransferCollected = 0;
+    let debtPosCollected = 0;
+
+    relevantDebtRepayments.forEach(r => {
+      const amt = Number(r.amount_paid) || 0;
+      debtRecoveriesCollected += amt;
+      if (r.payment_method === 'Cash') {
+        cashGross += amt;
+        cashCount++;
+        debtCashCollected += amt;
+      } else if (r.payment_method === 'Bank Transfer') {
+        transferGross += amt;
+        transferCount++;
+        debtTransferCollected += amt;
+      } else if (r.payment_method === 'POS') {
+        posGross += amt;
+        posCount++;
+        debtPosCollected += amt;
+      } else {
+        cashGross += amt;
+        cashCount++;
+        debtCashCollected += amt;
       }
     });
 
@@ -371,8 +432,6 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
     let transferRefundCount = 0;
     let posRefundAmount = 0;
     let posRefundCount = 0;
-    let otherRefundAmount = 0;
-    let otherRefundCount = 0;
 
     relevantRefunds.forEach(r => {
       const amt = Number(r.refund_amount) || 0;
@@ -385,20 +444,16 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       } else if (r.payment_method === 'POS' || r.payment_method === 'Debit/Credit Card') {
         posRefundAmount += amt;
         posRefundCount++;
-      } else {
-        otherRefundAmount += amt;
-        otherRefundCount++;
       }
     });
 
     const netCash = Math.max(0, cashGross - cashRefundAmount);
     const netTransfer = Math.max(0, transferGross - transferRefundAmount);
     const netPos = Math.max(0, posGross - posRefundAmount);
-    const netOther = Math.max(0, otherGross - otherRefundAmount);
 
-    const totalReconciled = netCash + netTransfer + netPos + netOther;
-    const totalGross = cashGross + transferGross + posGross + otherGross;
-    const totalRefunds = cashRefundAmount + transferRefundAmount + posRefundAmount + otherRefundAmount;
+    const totalReconciled = netCash + netTransfer + netPos;
+    const totalGross = cashGross + transferGross + posGross;
+    const totalRefunds = cashRefundAmount + transferRefundAmount + posRefundAmount;
 
     return {
       cash: {
@@ -409,6 +464,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         count: cashCount,
         percentage: totalReconciled > 0 ? Math.round((netCash / totalReconciled) * 100) : 0,
         avgTicket: cashCount > 0 ? Math.round(netCash / cashCount) : 0,
+        debtRepayments: debtCashCollected,
       },
       transfer: {
         amount: netTransfer,
@@ -418,6 +474,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         count: transferCount,
         percentage: totalReconciled > 0 ? Math.round((netTransfer / totalReconciled) * 100) : 0,
         avgTicket: transferCount > 0 ? Math.round(netTransfer / transferCount) : 0,
+        debtRepayments: debtTransferCollected,
       },
       pos: {
         amount: netPos,
@@ -427,16 +484,15 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         count: posCount,
         percentage: totalReconciled > 0 ? Math.round((netPos / totalReconciled) * 100) : 0,
         avgTicket: posCount > 0 ? Math.round(netPos / posCount) : 0,
+        debtRepayments: debtPosCollected,
       },
-      other: {
-        amount: netOther,
-        gross: otherGross,
-        refunds: otherRefundAmount,
-        refundCount: otherRefundCount,
-        count: otherCount,
-        percentage: totalReconciled > 0 ? Math.round((netOther / totalReconciled) * 100) : 0,
-        avgTicket: otherCount > 0 ? Math.round(netOther / otherCount) : 0,
+      creditReceivables: {
+        amount: creditReceivablesIssued,
+        count: creditSalesCount,
       },
+      directSalesCollections,
+      creditDownPaymentsCollected,
+      debtRecoveriesCollected,
       splitTransactions: {
         count: splitTxCount,
         totalAmount: splitTotalAmount,
@@ -445,7 +501,59 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       totalGross,
       totalRefunds,
     };
-  }, [relevantSales, relevantRefunds]);
+  }, [relevantSales, relevantRefunds, relevantDebtRepayments]);
+
+  // Executive Credit & Debt Receivables Summary (Cumulative Live Debt vs Period Incurred & Recovered)
+  const creditDebtSummary = useMemo(() => {
+    // 1. All-time Active Debt Portfolio (Cumulative Live Debt across all registered customer accounts)
+    const activeDebtors = customers.filter(c => (Number(c.balance) || 0) > 0);
+    const totalOutstandingReceivables = activeDebtors.reduce(
+      (sum, c) => sum + (Number(c.balance) || 0), 
+      0
+    );
+
+    // 2. Periodic Metrics (Scoped to the active date filter: relevantSales)
+    const periodCreditSales = relevantSales.filter(s => s.payment_method === 'Credit / Pay Later');
+    const periodCreditSalesCount = periodCreditSales.length;
+    const periodGrossCreditInvoiced = periodCreditSales.reduce(
+      (sum, s) => sum + (Number(s.final_amount) || 0), 
+      0
+    );
+    const periodCreditDownPayments = periodCreditSales.reduce(
+      (sum, s) => sum + (Number(s.deposit_amount) || 0), 
+      0
+    );
+    // Net new debt created during the selected period
+    const periodNewDebtIncurred = Math.max(0, periodGrossCreditInvoiced - periodCreditDownPayments);
+
+    // 3. Periodic Debt Recoveries (Settlements collected during the selected period: relevantDebtRepayments)
+    const periodDebtSettlements = relevantDebtRepayments.reduce(
+      (sum, r) => sum + (Number(r.amount_paid) || 0), 
+      0
+    );
+    const periodSettlementCount = relevantDebtRepayments.length;
+
+    // 4. Net Receivables Movement for the period (New Debt Incurred vs Debt Collected)
+    const netDebtChange = periodNewDebtIncurred - periodDebtSettlements;
+
+    // 5. Debt Recovery Efficiency Ratio
+    const collectionRatio = (periodNewDebtIncurred + periodDebtSettlements) > 0
+      ? Math.round((periodDebtSettlements / (periodNewDebtIncurred + periodDebtSettlements)) * 100)
+      : 100;
+
+    return {
+      totalOutstandingReceivables,
+      activeDebtorCount: activeDebtors.length,
+      periodCreditSalesCount,
+      periodGrossCreditInvoiced,
+      periodCreditDownPayments,
+      periodNewDebtIncurred,
+      periodDebtSettlements,
+      periodSettlementCount,
+      netDebtChange,
+      collectionRatio,
+    };
+  }, [customers, relevantSales, relevantDebtRepayments]);
 
   // Cashier Payment Breakdown Matrix (deducting cash, transfer, and POS refunds)
   const cashierPaymentBreakdown = useMemo(() => {
@@ -474,6 +582,23 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
               posCount++;
             }
           });
+        } else if (s.payment_method === 'Credit / Pay Later') {
+          const dep = Number(s.deposit_amount) || 0;
+          if (dep > 0) {
+            if (s.deposit_payment_method === 'Cash') {
+              grossCash += dep;
+              cashCount++;
+            } else if (s.deposit_payment_method === 'Bank Transfer') {
+              grossTransfer += dep;
+              transferCount++;
+            } else if (s.deposit_payment_method === 'POS' || s.deposit_payment_method === 'Debit/Credit Card') {
+              grossPos += dep;
+              posCount++;
+            } else {
+              grossCash += dep;
+              cashCount++;
+            }
+          }
         } else {
           if (s.payment_method === 'Cash') {
             grossCash += s.final_amount;
@@ -485,6 +610,26 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
             grossPos += s.final_amount;
             posCount++;
           }
+        }
+      });
+
+      // Include debt repayments collected by this cashier
+      const empRepayments = relevantDebtRepayments.filter(r => r.staff_id === emp.staff_id);
+      empRepayments.forEach(rep => {
+        const amt = Number(rep.amount_paid) || 0;
+        grossTotalRev += amt;
+        if (rep.payment_method === 'Cash') {
+          grossCash += amt;
+          cashCount++;
+        } else if (rep.payment_method === 'Bank Transfer') {
+          grossTransfer += amt;
+          transferCount++;
+        } else if (rep.payment_method === 'POS') {
+          grossPos += amt;
+          posCount++;
+        } else {
+          grossCash += amt;
+          cashCount++;
         }
       });
 
@@ -528,7 +673,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         pos: { amount: netPos, gross: grossPos, refunds: empPosRefund, count: posCount },
       };
     }).sort((a, b) => b.totalRev - a.totalRev);
-  }, [employees, relevantSales, relevantRefunds, sales]);
+  }, [employees, relevantSales, relevantRefunds, relevantDebtRepayments, sales]);
 
   // POS Terminal & Bank Account Collections Breakdown with Refund Deductions
   const terminalBreakdown = useMemo(() => {
@@ -537,16 +682,41 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       let count = 0;
 
       relevantSales.forEach(s => {
-        if (s.pos_terminal_id === term.id) {
+        if (s.payment_method === 'Credit / Pay Later') {
+          const depAmt = Number(s.deposit_amount) || 0;
+          if (depAmt > 0) {
+            const matchesTerminal = s.pos_terminal_id === term.id;
+            const matchesBank = term.type === 'BANK_TRANSFER_ACCOUNT' && (
+              s.bank_account_id === term.id ||
+              s.pos_terminal_id === term.id ||
+              (s.bank_name === term.bank_name && (s.bank_account_number === term.account_number || !s.bank_account_number))
+            );
+
+            if ((s.deposit_payment_method === 'POS' && matchesTerminal) ||
+                (s.deposit_payment_method === 'Bank Transfer' && (matchesBank || matchesTerminal))) {
+              grossAmount += depAmt;
+              count++;
+            }
+          }
+        } else if (s.pos_terminal_id === term.id || (term.type === 'BANK_TRANSFER_ACCOUNT' && s.bank_name === term.bank_name && (s.bank_account_number === term.account_number || !s.bank_account_number))) {
           grossAmount += s.final_amount;
           count++;
         } else if (s.payment_splits && s.payment_splits.length > 0) {
           s.payment_splits.forEach(split => {
-            if (split.pos_terminal_id === term.id) {
+            if (split.pos_terminal_id === term.id || (term.type === 'BANK_TRANSFER_ACCOUNT' && split.bank_name === term.bank_name)) {
               grossAmount += split.amount;
               count++;
             }
           });
+        }
+      });
+
+      // Include debt repayments received into this terminal or bank account
+      relevantDebtRepayments.forEach(rep => {
+        const targetId = rep.pos_terminal_id || rep.bank_account_id;
+        if (targetId === term.id || (term.type === 'BANK_TRANSFER_ACCOUNT' && rep.bank_name === term.bank_name)) {
+          grossAmount += Number(rep.amount_paid) || 0;
+          count++;
         }
       });
 
@@ -565,7 +735,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         refundCount,
       };
     }).sort((a, b) => b.amount - a.amount);
-  }, [posTerminals, relevantSales, relevantRefunds]);
+  }, [posTerminals, relevantSales, relevantRefunds, relevantDebtRepayments]);
 
   // Cash Reconciliation Drawer Summary with selected date range synchronization
   const cashReconciliationSummary = useMemo(() => {
@@ -962,8 +1132,8 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       },
       {
         step: 4,
-        title: 'Net Realized Revenue',
-        subtitle: 'Actual incoming cash & settlements',
+        title: 'Net Invoiced Turnover (Accrual)',
+        subtitle: 'Recognized invoice revenue net of discounts & returns',
         amount: netRevenue,
         delta: netRevenue,
         type: 'subtotal',
@@ -981,7 +1151,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       {
         step: 6,
         title: 'Bottom-Line Realized Gross Profit',
-        subtitle: `${profitMargin}% Net Margin Conversion`,
+        subtitle: `${profitMargin}% Gross Margin on goods delivered`,
         amount: grossProfit,
         delta: grossProfit,
         type: 'total',
@@ -1127,7 +1297,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       )}
 
       {/* KPI Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
         
         {/* Card 1: Retail Gross Sales */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
@@ -1198,6 +1368,25 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           <div className="text-[11px] text-emerald-600 font-semibold flex items-center justify-between">
             <span>{profitMargin}% Net Margin</span>
             <span className="text-slate-400 text-[10px] font-normal font-mono">COGS ₦{netCogs.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Card 6: Outstanding Debt (Receivables Portfolio) */}
+        <div className="bg-white p-4 rounded-xl border border-indigo-200 bg-indigo-50/20 shadow-sm space-y-1">
+          <div className="flex items-center justify-between text-indigo-700 text-xs">
+            <span className="font-semibold text-indigo-950">Outstanding Debt</span>
+            <Clock className="w-4 h-4 text-indigo-600" />
+          </div>
+          <div className="text-2xl font-black text-indigo-950 font-mono">
+            ₦{creditDebtSummary.totalOutstandingReceivables.toLocaleString()}
+          </div>
+          <div className="text-[11px] text-indigo-800 flex items-center justify-between font-medium">
+            <span>{creditDebtSummary.activeDebtorCount} Active Debtor(s)</span>
+            {creditDebtSummary.periodNewDebtIncurred > 0 ? (
+              <span className="text-amber-800 font-mono text-[10px] font-bold">+₦{creditDebtSummary.periodNewDebtIncurred.toLocaleString()} new</span>
+            ) : (
+              <span className="text-slate-400 font-mono text-[10px]">₦0 new</span>
+            )}
           </div>
         </div>
 
@@ -2072,6 +2261,35 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
               </div>
             </div>
 
+            {/* Customer Credit & Debt Sales */}
+            <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200 space-y-1.5">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center space-x-2 font-bold text-indigo-950">
+                  <Clock className="w-4 h-4 text-indigo-600" />
+                  <span>Credit / Debt Sales</span>
+                </div>
+                <span className="font-mono font-bold text-indigo-900 text-sm">
+                  ₦{creditDebtSummary.periodGrossCreditInvoiced.toLocaleString()}
+                </span>
+              </div>
+              <div className="w-full bg-indigo-200/60 h-2 rounded-full overflow-hidden flex">
+                <div
+                  className="bg-emerald-500 h-full transition-all"
+                  style={{ width: `${creditDebtSummary.periodGrossCreditInvoiced > 0 ? (creditDebtSummary.periodCreditDownPayments / creditDebtSummary.periodGrossCreditInvoiced) * 100 : 0}%` }}
+                  title="Down Payments Collected"
+                />
+                <div
+                  className="bg-indigo-600 h-full transition-all"
+                  style={{ width: `${creditDebtSummary.periodGrossCreditInvoiced > 0 ? (creditDebtSummary.periodNewDebtIncurred / creditDebtSummary.periodGrossCreditInvoiced) * 100 : 0}%` }}
+                  title="Unpaid Debt (Receivables)"
+                />
+              </div>
+              <div className="flex justify-between text-[11px] text-indigo-900">
+                <span>{creditDebtSummary.periodCreditSalesCount} Credit orders (₦{creditDebtSummary.periodCreditDownPayments.toLocaleString()} deposit)</span>
+                <span className="font-semibold text-rose-700">₦{creditDebtSummary.periodNewDebtIncurred.toLocaleString()} unpaid debt</span>
+              </div>
+            </div>
+
             {/* Split Payments Notice */}
             {paymentReconciliation.splitTransactions.count > 0 && (
               <div className="p-2 bg-slate-100 rounded-lg border border-slate-200 text-[11px] text-slate-700 flex items-center justify-between">
@@ -2109,8 +2327,8 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </div>
         </div>
 
-        {/* 4 Reconciliation Highlight Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* 5 Reconciliation Highlight Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           
           {/* Card 1: Cash in Drawer */}
           <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
@@ -2216,6 +2434,29 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
             </div>
           </div>
 
+          {/* Card 5: Credit & Receivables Ledger */}
+          <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between text-xs text-indigo-800">
+              <span className="font-bold flex items-center space-x-1.5">
+                <Clock className="w-4 h-4 text-indigo-600" />
+                <span>Credit Receivables</span>
+              </span>
+              <span className="px-2 py-0.5 bg-indigo-200 text-indigo-900 rounded font-bold text-[10px]">
+                {creditDebtSummary.periodCreditSalesCount} Credit Orders
+              </span>
+            </div>
+            <div className="text-2xl font-black font-mono text-indigo-950">
+              ₦{creditDebtSummary.periodNewDebtIncurred.toLocaleString()}
+            </div>
+            <div className="text-[11px] text-indigo-700 flex justify-between pt-1 border-t border-indigo-200/60">
+              <span>New Debt Incurred</span>
+              <span className="text-emerald-700 font-bold">₦{creditDebtSummary.periodDebtSettlements.toLocaleString()} recovered</span>
+            </div>
+            <div className="text-[10px] text-slate-500 italic">
+              Live portfolio: ₦{creditDebtSummary.totalOutstandingReceivables.toLocaleString()} due across {creditDebtSummary.activeDebtorCount} debtors.
+            </div>
+          </div>
+
         </div>
 
         {/* Detailed Payment Mode Audit Summary Table */}
@@ -2311,10 +2552,38 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
                 </td>
               </tr>
 
+              {/* Customer Credit / Receivables Row */}
+              {paymentReconciliation.creditReceivables.amount > 0 && (
+                <tr className="hover:bg-slate-50 bg-indigo-50/40">
+                  <td className="py-3 px-4 font-bold text-indigo-950 flex items-center space-x-2">
+                    <Clock className="w-4 h-4 text-indigo-600" />
+                    <span>Credit Sales Issued (Unpaid Receivables)</span>
+                  </td>
+                  <td className="py-3 px-4 text-center font-bold font-mono text-indigo-900">
+                    {paymentReconciliation.creditReceivables.count}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono font-medium text-slate-800">
+                    ₦{paymentReconciliation.creditReceivables.amount.toLocaleString()}
+                  </td>
+                  <td className="py-3 px-4 text-right font-mono font-bold text-slate-400">
+                    ₦0
+                  </td>
+                  <td className="py-3 px-4 text-right font-black font-mono text-indigo-700 text-sm">
+                    ₦{paymentReconciliation.creditReceivables.amount.toLocaleString()}
+                  </td>
+                  <td className="py-3 px-4 text-center font-bold text-slate-500">
+                    N/A
+                  </td>
+                  <td className="py-3 px-4 text-slate-500 text-[11px]">
+                    Customer debt extended today. Recorded in Customer Accounts ledger; excluded from cash/bank drawer totals.
+                  </td>
+                </tr>
+              )}
+
               {/* Grand Total Row */}
               <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-300 text-slate-900">
                 <td className="py-3.5 px-4 font-extrabold uppercase">
-                  Total Reconciled Turnover
+                  Total Reconciled Cash & Bank Collections
                 </td>
                 <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-950">
                   {paymentReconciliation.cash.count + paymentReconciliation.transfer.count + paymentReconciliation.pos.count} txns
@@ -2332,11 +2601,36 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
                   100%
                 </td>
                 <td className="py-3.5 px-4 text-emerald-800 font-bold text-[11px]">
-                  ✓ All counter sales, returns deductions, and settlements mathematically balanced.
+                  ✓ All counter sales, credit down payments, and debt settlements mathematically balanced.
                 </td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        {/* 5-Pillar Cash & Credit Reconciliation Summary Pill Bar */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 pt-1">
+          <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+            <span className="text-[10px] text-slate-500 font-bold uppercase block">1. Direct Counter Sales</span>
+            <span className="text-sm font-mono font-bold text-slate-900">₦{paymentReconciliation.directSalesCollections.toLocaleString()}</span>
+          </div>
+          <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-200">
+            <span className="text-[10px] text-blue-800 font-bold uppercase block">2. Credit Down Payments</span>
+            <span className="text-sm font-mono font-bold text-blue-900">₦{paymentReconciliation.creditDownPaymentsCollected.toLocaleString()}</span>
+          </div>
+          <div className="p-2.5 bg-emerald-50/60 rounded-xl border border-emerald-200">
+            <span className="text-[10px] text-emerald-800 font-bold uppercase block">3. Past Debt Recoveries</span>
+            <span className="text-sm font-mono font-bold text-emerald-900">₦{paymentReconciliation.debtRecoveriesCollected.toLocaleString()}</span>
+          </div>
+          <div className="p-2.5 bg-amber-50/60 rounded-xl border border-amber-200">
+            <span className="text-[10px] text-amber-800 font-bold uppercase block">4. New Debt Incurred</span>
+            <span className="text-sm font-mono font-bold text-amber-950">₦{creditDebtSummary.periodNewDebtIncurred.toLocaleString()}</span>
+          </div>
+          <div className="p-2.5 bg-indigo-50/60 rounded-xl border border-indigo-200">
+            <span className="text-[10px] text-indigo-800 font-bold uppercase block">5. Total Live Debt Due</span>
+            <span className="text-sm font-mono font-black text-indigo-950">₦{creditDebtSummary.totalOutstandingReceivables.toLocaleString()}</span>
+            <span className="text-[9px] text-indigo-700 block mt-0.5">{creditDebtSummary.activeDebtorCount} Active Debtors</span>
+          </div>
         </div>
 
         {/* Cashier Shift Payment Balancing Matrix (Management Shift Reconciliation) */}
@@ -2485,7 +2779,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           <p className="text-[11px] text-slate-600">Generated: {dateRangeLabel} • Official Audit Copy</p>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 py-2 border-b border-slate-200 text-[11px]">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 py-2 border-b border-slate-200 text-[11px]">
           <div>
             <span className="text-[10px] text-slate-500 block">REPORTING PERIOD:</span>
             <span className="font-bold">{dateRangeLabel}</span>
@@ -2506,6 +2800,10 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
             <span className="text-[10px] text-slate-500 block">NET GROSS PROFIT:</span>
             <span className="font-bold text-emerald-800">₦{grossProfit.toLocaleString()} ({profitMargin}%)</span>
           </div>
+          <div>
+            <span className="text-[10px] text-slate-500 block">LIVE DEBT RECEIVABLES:</span>
+            <span className="font-bold text-indigo-900">₦{creditDebtSummary.totalOutstandingReceivables.toLocaleString()}</span>
+          </div>
         </div>
 
         {/* Explicit Payment Method Reconciliation in Printable Report */}
@@ -2513,7 +2811,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           <div className="font-bold border-b border-slate-200 pb-1 text-slate-900 uppercase">
             PAYMENT MODE RECONCILIATION & BALANCING (NET OF REFUND DEDUCTIONS):
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-1 text-[11px]">
             <div className="p-2 bg-emerald-50 rounded border border-emerald-200">
               <span className="text-slate-500 block">NET CASH IN DRAWER:</span>
               <span className="font-bold text-emerald-900 text-sm">₦{paymentReconciliation.cash.amount.toLocaleString()}</span>
@@ -2535,9 +2833,16 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
                 Gross ₦{paymentReconciliation.pos.gross.toLocaleString()} - ₦{paymentReconciliation.pos.refunds.toLocaleString()} ref.
               </span>
             </div>
+            <div className="p-2 bg-indigo-50 rounded border border-indigo-200">
+              <span className="text-slate-500 block">CREDIT & RECEIVABLES:</span>
+              <span className="font-bold text-indigo-900 text-sm">₦{creditDebtSummary.periodNewDebtIncurred.toLocaleString()}</span>
+              <span className="block text-[10px] text-slate-500">
+                Total Due: ₦{creditDebtSummary.totalOutstandingReceivables.toLocaleString()} ({creditDebtSummary.activeDebtorCount} debtors)
+              </span>
+            </div>
           </div>
           <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs font-bold">
-            <span>TOTAL NET RECONCILED SUM:</span>
+            <span>TOTAL LIQUID INFLOW RECONCILED:</span>
             <span className="font-mono text-emerald-800 text-sm">₦{paymentReconciliation.totalReconciled.toLocaleString()}</span>
           </div>
         </div>

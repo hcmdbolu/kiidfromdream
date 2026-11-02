@@ -1,16 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
-import { Customer, CustomerType, Employee, CustomerDebtRepayment } from '../../types';
-import { 
-  UserPlus, 
-  Search, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Calendar, 
-  Clock, 
-  X, 
-  Check, 
+import { Customer, CustomerType, Employee, CustomerDebtRepayment, SaleTransaction } from '../../types';
+import {
+  UserPlus,
+  Search,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
+  Clock,
+  X,
+  Check,
   Sparkles,
   ArrowUpRight,
   Percent,
@@ -29,22 +29,287 @@ import {
   Banknote,
   Receipt,
   Building2,
-  Copy
+  Copy,
+  ChevronRight,
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
+
+export interface DebtAgingInfo {
+  category: 'Current' | '31-60 Days' | '61-90 Days' | '90+ Days';
+  days: number;
+  label: string;
+  badgeClass: string;
+  dotColor: string;
+  riskLevel: 'Normal' | 'Overdue' | 'Delinquent' | 'High Risk';
+  earliestUnpaidDate?: string;
+  earliestUnpaidTxnId?: string;
+}
+
+export interface UnifiedCustomerLedgerEntry {
+  id: string;
+  date_time: string;
+  timestamp: number;
+  type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT';
+  ref_number: string;
+  description: string;
+  channel: string;
+  channel_details?: string;
+  staff_name?: string;
+  debit: number;
+  credit: number;
+  running_balance: number;
+  sale_raw?: SaleTransaction;
+  repayment_raw?: CustomerDebtRepayment;
+}
+
+export const getCustomerDebtAging = (
+  customer: Customer,
+  allSales: SaleTransaction[],
+  allRepayments: CustomerDebtRepayment[]
+): DebtAgingInfo | null => {
+  const balance = Number(customer.balance) || 0;
+  if (balance <= 0) return null;
+
+  // Credit sales for this customer, sorted chronologically ascending
+  const creditSales = allSales
+    .filter(s => s.customer_id === customer.customer_id && s.payment_method === 'Credit / Pay Later')
+    .sort((a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime());
+
+  // Repayments for this customer
+  const repayments = allRepayments
+    .filter(r => r.customer_id === customer.customer_id);
+
+  let totalRepaid = repayments.reduce((sum, r) => sum + (Number(r.amount_paid) || 0), 0);
+
+  // FIFO matching of credit invoices against repayments
+  let earliestUnpaidDate: string | undefined;
+  let earliestUnpaidTxnId: string | undefined;
+
+  for (const sale of creditSales) {
+    const netDebtIncurred = Math.max(0, (Number(sale.final_amount) || 0) - (Number(sale.deposit_amount) || 0));
+    if (netDebtIncurred <= 0) continue;
+
+    if (totalRepaid >= netDebtIncurred) {
+      totalRepaid -= netDebtIncurred;
+    } else {
+      earliestUnpaidDate = sale.date_time;
+      earliestUnpaidTxnId = sale.transaction_id;
+      break;
+    }
+  }
+
+  let diffDays = 0;
+  if (earliestUnpaidDate) {
+    const invoiceTime = new Date(earliestUnpaidDate).getTime();
+    if (!isNaN(invoiceTime)) {
+      diffDays = Math.max(0, Math.floor((Date.now() - invoiceTime) / (1000 * 60 * 60 * 24)));
+    }
+  } else if (customer.last_purchase_date) {
+    const lastTime = new Date(customer.last_purchase_date).getTime();
+    if (!isNaN(lastTime)) {
+      diffDays = Math.max(0, Math.floor((Date.now() - lastTime) / (1000 * 60 * 60 * 24)));
+    }
+  }
+
+  if (diffDays > 90) {
+    return {
+      category: '90+ Days',
+      days: diffDays,
+      label: `${diffDays}d Overdue (90d+)`,
+      badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 font-extrabold',
+      dotColor: 'bg-rose-600 animate-pulse',
+      riskLevel: 'High Risk',
+      earliestUnpaidDate,
+      earliestUnpaidTxnId,
+    };
+  } else if (diffDays > 60) {
+    return {
+      category: '61-90 Days',
+      days: diffDays,
+      label: `${diffDays}d Delinquent (61-90d)`,
+      badgeClass: 'bg-orange-100 text-orange-800 border-orange-300',
+      dotColor: 'bg-orange-500',
+      riskLevel: 'Delinquent',
+      earliestUnpaidDate,
+      earliestUnpaidTxnId,
+    };
+  } else if (diffDays > 30) {
+    return {
+      category: '31-60 Days',
+      days: diffDays,
+      label: `${diffDays}d Overdue (31-60d)`,
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300',
+      dotColor: 'bg-amber-500',
+      riskLevel: 'Overdue',
+      earliestUnpaidDate,
+      earliestUnpaidTxnId,
+    };
+  } else {
+    return {
+      category: 'Current',
+      days: diffDays,
+      label: `${diffDays}d (Current <30d)`,
+      badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
+      dotColor: 'bg-blue-600',
+      riskLevel: 'Normal',
+      earliestUnpaidDate,
+      earliestUnpaidTxnId,
+    };
+  }
+};
+
+export const buildCustomerUnifiedLedger = (
+  customer: Customer,
+  allSales: SaleTransaction[],
+  allRepayments: CustomerDebtRepayment[]
+): UnifiedCustomerLedgerEntry[] => {
+  const creditSales = allSales.filter(s => s.customer_id === customer.customer_id && s.payment_method === 'Credit / Pay Later');
+  const repayments = allRepayments.filter(r => r.customer_id === customer.customer_id);
+
+  interface RawEvent {
+    id: string;
+    date_time: string;
+    timestamp: number;
+    type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT';
+    ref_number: string;
+    description: string;
+    channel: string;
+    channel_details?: string;
+    staff_name?: string;
+    debit: number;
+    credit: number;
+    sale_raw?: SaleTransaction;
+    repayment_raw?: CustomerDebtRepayment;
+  }
+
+  const events: RawEvent[] = [];
+
+  creditSales.forEach(s => {
+    const baseTime = new Date(s.date_time).getTime() || 0;
+
+    // Invoice Gross Entry
+    events.push({
+      id: `INV-${s.transaction_id}`,
+      date_time: s.date_time,
+      timestamp: baseTime,
+      type: 'CREDIT_INVOICE',
+      ref_number: s.transaction_id,
+      description: `Credit Sale: ${s.items?.length || 1} item(s) purchased`,
+      channel: 'Credit / Pay Later',
+      channel_details: `Agreed Due: ${s.payment_due_date || 'Prompt'}`,
+      staff_name: s.staff_id,
+      debit: Number(s.final_amount) || 0,
+      credit: 0,
+      sale_raw: s,
+    });
+
+    // Down payment entry if deposited at checkout
+    const depAmt = Number(s.deposit_amount) || 0;
+    if (depAmt > 0) {
+      let channelDetails = 'Cash Drawer';
+      if (s.deposit_payment_method === 'POS') {
+        channelDetails = s.pos_terminal_name ? `POS: ${s.pos_terminal_name}` : 'POS Terminal';
+        if (s.payment_reference) channelDetails += ` (RRN: ${s.payment_reference})`;
+      } else if (s.deposit_payment_method === 'Bank Transfer') {
+        channelDetails = s.bank_name ? `Bank: ${s.bank_name}` : 'Bank Transfer';
+        if (s.bank_account_number) channelDetails += ` (${s.bank_account_number})`;
+        if (s.payment_reference) channelDetails += ` (Ref: ${s.payment_reference})`;
+      }
+
+      events.push({
+        id: `DEP-${s.transaction_id}`,
+        date_time: s.date_time,
+        timestamp: baseTime + 1,
+        type: 'DOWN_PAYMENT',
+        ref_number: s.payment_reference || `DEP-${s.transaction_id}`,
+        description: `Counter Down Payment on ${s.transaction_id}`,
+        channel: s.deposit_payment_method || 'Cash',
+        channel_details: channelDetails,
+        staff_name: s.staff_id,
+        debit: 0,
+        credit: depAmt,
+        sale_raw: s,
+      });
+    }
+  });
+
+  repayments.forEach(r => {
+    const repTime = new Date(r.date_time).getTime() || 0;
+    let channelDetails = 'Cash Drawer';
+    if (r.payment_method === 'POS') {
+      channelDetails = r.pos_terminal_name ? `POS: ${r.pos_terminal_name}` : 'POS Terminal';
+      if (r.reference_number) channelDetails += ` (RRN: ${r.reference_number})`;
+    } else if (r.payment_method === 'Bank Transfer') {
+      channelDetails = r.bank_name ? `Bank: ${r.bank_name}` : 'Bank Transfer';
+      if (r.bank_account_number) channelDetails += ` (${r.bank_account_number})`;
+      if (r.reference_number) channelDetails += ` (Ref: ${r.reference_number})`;
+    }
+
+    events.push({
+      id: `REP-${r.repayment_id}`,
+      date_time: r.date_time,
+      timestamp: repTime,
+      type: 'DEBT_REPAYMENT',
+      ref_number: r.reference_number || r.repayment_id,
+      description: `Debt Settlement Receipt ${r.repayment_id}${r.notes ? ` (${r.notes})` : ''}`,
+      channel: r.payment_method,
+      channel_details: channelDetails,
+      staff_name: r.staff_name,
+      debit: 0,
+      credit: Number(r.amount_paid) || 0,
+      repayment_raw: r,
+    });
+  });
+
+  // Sort chronologically ascending
+  events.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Compute running balance
+  let running = 0;
+  const ledger: UnifiedCustomerLedgerEntry[] = events.map(entry => {
+    running += (entry.debit - entry.credit);
+    return {
+      ...entry,
+      running_balance: running
+    };
+  });
+
+  // Handle case of legacy balance before system sales
+  const currentCustomerBalance = Number(customer.balance) || 0;
+  if (currentCustomerBalance > 0 && ledger.length === 0) {
+    ledger.push({
+      id: `INIT-${customer.customer_id}`,
+      date_time: customer.registration_date || 'Initial',
+      timestamp: 0,
+      type: 'OPENING_BALANCE',
+      ref_number: 'OPENING-BAL',
+      description: 'Opening / Historical Debt Balance',
+      channel: 'System Migration',
+      channel_details: 'Migrated Account Balance',
+      staff_name: 'System Admin',
+      debit: currentCustomerBalance,
+      credit: 0,
+      running_balance: currentCustomerBalance,
+    });
+  }
+
+  return ledger;
+};
 
 interface CustomerManagerProps {
   onSelectCustomerForSale?: (customerId: string) => void;
 }
 
 export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustomerForSale }) => {
-  const { 
-    customers, 
-    sales, 
+  const {
+    customers,
+    sales,
     customerDebtRepayments,
     posTerminals,
-    addCustomer, 
-    updateCustomerDiscount, 
+    addCustomer,
+    updateCustomerDiscount,
     settleCustomerDebt,
     getNextCustomerId,
     activeStaff,
@@ -102,6 +367,11 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
   const [slipToPrint, setSlipToPrint] = useState<CustomerDebtRepayment | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
 
+  // Statement of Account Modal
+  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [customerForStatement, setCustomerForStatement] = useState<Customer | null>(null);
+  const [statementToPrint, setStatementToPrint] = useState<Customer | null>(null);
+
   // PIN Auth for restricted operations
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pendingCustomerForDiscount, setPendingCustomerForDiscount] = useState<Customer | null>(null);
@@ -157,8 +427,8 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
     const created = addCustomer({
       ...formData,
       discount_percent: canManageDiscounts ? Number(formData.discount_percent) || 0 : 0,
-      discount_notes: canManageDiscounts && formData.discount_percent > 0 
-        ? (formData.discount_notes || `Approved by ${activeStaff.staff_name} (${activeStaff.role})`) 
+      discount_notes: canManageDiscounts && formData.discount_percent > 0
+        ? (formData.discount_notes || `Approved by ${activeStaff.staff_name} (${activeStaff.role})`)
         : '',
     });
 
@@ -202,11 +472,11 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
       return;
     }
 
-    const authName = pinOverrideStaff 
-      ? `${pinOverrideStaff.staff_name} (${pinOverrideStaff.role})` 
+    const authName = pinOverrideStaff
+      ? `${pinOverrideStaff.staff_name} (${pinOverrideStaff.role})`
       : `${activeStaff.staff_name} (${activeStaff.role})`;
 
-    const note = discountNotesInput.trim() 
+    const note = discountNotesInput.trim()
       ? `${discountNotesInput.trim()} (Approved by ${authName})`
       : `Approved by ${authName}`;
 
@@ -350,24 +620,89 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
     }
   };
 
-  // Filter customers
+  const handlePrintStatement = async (cust: Customer) => {
+    setStatementToPrint(cust);
+    setIsPrinting(true);
+    try {
+      if (window.electronAPI?.printReceipt) {
+        await window.electronAPI.printReceipt({ silent: false });
+      } else {
+        window.print();
+      }
+    } catch (err) {
+      console.warn('Native print error, falling back to window.print:', err);
+      window.print();
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // Debtor Aging Portfolio Summary
+  const agingPortfolio = useMemo(() => {
+    const buckets = {
+      current: { count: 0, total: 0 },
+      days30to60: { count: 0, total: 0 },
+      days61to90: { count: 0, total: 0 },
+      days90plus: { count: 0, total: 0 },
+    };
+
+    debtorCustomers.forEach(c => {
+      const bal = Number(c.balance) || 0;
+      const aging = getCustomerDebtAging(c, sales, customerDebtRepayments);
+      if (!aging || aging.category === 'Current') {
+        buckets.current.count++;
+        buckets.current.total += bal;
+      } else if (aging.category === '31-60 Days') {
+        buckets.days30to60.count++;
+        buckets.days30to60.total += bal;
+      } else if (aging.category === '61-90 Days') {
+        buckets.days61to90.count++;
+        buckets.days61to90.total += bal;
+      } else {
+        buckets.days90plus.count++;
+        buckets.days90plus.total += bal;
+      }
+    });
+
+    return buckets;
+  }, [debtorCustomers, sales, customerDebtRepayments]);
+
+  // Filter customers with Search, CustomerType, and Debtor Aging criteria
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
-      const matchSearch = 
+      const matchSearch =
         c.full_name.toLowerCase().includes(search.toLowerCase()) ||
         c.phone_number.includes(search) ||
         c.customer_id.toLowerCase().includes(search.toLowerCase());
-      
+
       let matchType = true;
+      const debtBal = Number(c.balance) || 0;
+
       if (selectedType === 'Debtors') {
-        matchType = (Number(c.balance) || 0) > 0;
+        matchType = debtBal > 0;
+      } else if (selectedType === 'Aging_Current') {
+        if (debtBal <= 0) return false;
+        const aging = getCustomerDebtAging(c, sales, customerDebtRepayments);
+        matchType = aging?.category === 'Current';
+      } else if (selectedType === 'Aging_31_60') {
+        if (debtBal <= 0) return false;
+        const aging = getCustomerDebtAging(c, sales, customerDebtRepayments);
+        matchType = aging?.category === '31-60 Days';
+      } else if (selectedType === 'Aging_61_90') {
+        if (debtBal <= 0) return false;
+        const aging = getCustomerDebtAging(c, sales, customerDebtRepayments);
+        matchType = aging?.category === '61-90 Days';
+      } else if (selectedType === 'Aging_90_Plus') {
+        if (debtBal <= 0) return false;
+        const aging = getCustomerDebtAging(c, sales, customerDebtRepayments);
+        matchType = aging?.category === '90+ Days';
       } else if (selectedType !== 'All') {
         matchType = c.customer_type === selectedType;
       }
 
       return matchSearch && matchType;
     });
-  }, [customers, search, selectedType]);
+  }, [customers, search, selectedType, sales, customerDebtRepayments]);
 
   // Customer purchase history
   const customerSales = useMemo(() => {
@@ -386,9 +721,21 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
     return customerDebtRepayments.filter(r => r.customer_id === selectedCustomerForDrawer.customer_id);
   }, [customerDebtRepayments, selectedCustomerForDrawer]);
 
+  // Customer Unified Financial Ledger (combining credit invoices, deposits, repayments with running balance)
+  const customerUnifiedLedger = useMemo(() => {
+    if (!selectedCustomerForDrawer) return [];
+    return buildCustomerUnifiedLedger(selectedCustomerForDrawer, sales, customerDebtRepayments);
+  }, [selectedCustomerForDrawer, sales, customerDebtRepayments]);
+
+  // Customer Aging Details for drawer header
+  const selectedCustomerDrawerAging = useMemo(() => {
+    if (!selectedCustomerForDrawer) return null;
+    return getCustomerDebtAging(selectedCustomerForDrawer, sales, customerDebtRepayments);
+  }, [selectedCustomerForDrawer, sales, customerDebtRepayments]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -414,7 +761,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
 
       {/* KPI Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
+
         {/* Total Customers */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
           <div>
@@ -428,13 +775,12 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
         </div>
 
         {/* Active Debtors Count */}
-        <div 
+        <div
           onClick={() => setSelectedType('Debtors')}
-          className={`bg-white p-4 rounded-xl border shadow-xs flex items-center justify-between cursor-pointer transition-all ${
-            selectedType === 'Debtors' 
-              ? 'border-amber-500 ring-2 ring-amber-200 bg-amber-50/20' 
+          className={`bg-white p-4 rounded-xl border shadow-xs flex items-center justify-between cursor-pointer transition-all ${selectedType === 'Debtors'
+              ? 'border-amber-500 ring-2 ring-amber-200 bg-amber-50/20'
               : 'border-slate-200 hover:border-amber-300'
-          }`}
+            }`}
         >
           <div>
             <div className="text-[11px] font-bold text-amber-700 uppercase tracking-wider flex items-center space-x-1">
@@ -484,7 +830,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          
+
           {/* Search Box */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -510,22 +856,20 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
               <button
                 key={tab.id}
                 onClick={() => setSelectedType(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                  selectedType === tab.id
-                    ? tab.isWarning 
-                      ? 'bg-amber-600 text-white shadow-xs' 
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${selectedType === tab.id
+                    ? tab.isWarning
+                      ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-emerald-600 text-white shadow-xs'
                     : tab.isWarning && tab.count > 0
                       ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
+                  }`}
               >
                 <span>{tab.label}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                  selectedType === tab.id 
-                    ? 'bg-white/20 text-white' 
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${selectedType === tab.id
+                    ? 'bg-white/20 text-white'
                     : tab.isWarning ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-700'
-                }`}>
+                  }`}>
                   {tab.count}
                 </span>
               </button>
@@ -533,6 +877,67 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
           </div>
 
         </div>
+
+        {/* Debtor Aging Portfolio Filter Strip */}
+        {debtorCustomers.length > 0 && (
+          <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center space-x-1.5 text-slate-600 font-semibold text-[11px]">
+              <Clock className="w-3.5 h-3.5 text-amber-600" />
+              <span>Debtor Aging Analysis:</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                {
+                  id: 'Aging_Current',
+                  label: 'Current (< 30d)',
+                  count: agingPortfolio.current.count,
+                  total: agingPortfolio.current.total,
+                  colorClass: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+                  activeClass: 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                },
+                {
+                  id: 'Aging_31_60',
+                  label: '31-60d Overdue',
+                  count: agingPortfolio.days30to60.count,
+                  total: agingPortfolio.days30to60.total,
+                  colorClass: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
+                  activeClass: 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                },
+                {
+                  id: 'Aging_61_90',
+                  label: '61-90d Delinquent',
+                  count: agingPortfolio.days61to90.count,
+                  total: agingPortfolio.days61to90.total,
+                  colorClass: 'bg-orange-50 text-orange-800 border-orange-200 hover:bg-orange-100',
+                  activeClass: 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                },
+                {
+                  id: 'Aging_90_Plus',
+                  label: '90d+ High Risk',
+                  count: agingPortfolio.days90plus.count,
+                  total: agingPortfolio.days90plus.total,
+                  colorClass: 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100',
+                  activeClass: 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                },
+              ].map(pill => {
+                const isActive = selectedType === pill.id;
+                return (
+                  <button
+                    key={pill.id}
+                    onClick={() => setSelectedType(isActive ? 'All' : pill.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center space-x-1.5 transition-all ${isActive ? pill.activeClass : pill.colorClass
+                      }`}
+                  >
+                    <span>{pill.label}:</span>
+                    <span className="font-mono font-bold">{pill.count}</span>
+                    <span className="font-mono text-[10px] opacity-80">(₦{pill.total.toLocaleString()})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Customer List Grid/Table */}
@@ -546,7 +951,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                 <th className="py-3 px-4">Type</th>
                 <th className="py-3 px-4">Agreed Discount</th>
                 <th className="py-3 px-4">Total Spent</th>
-                <th className="py-3 px-4">Debt Balance</th>
+                <th className="py-3 px-4">Debt Balance & Aging</th>
                 <th className="py-3 px-4">Purchases</th>
                 <th className="py-3 px-4">Last Visit</th>
                 <th className="py-3 px-4 text-right">Actions</th>
@@ -563,6 +968,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                 filteredCustomers.map(customer => {
                   const debtBalance = Number(customer.balance) || 0;
                   const hasDebt = debtBalance > 0;
+                  const aging = hasDebt ? getCustomerDebtAging(customer, sales, customerDebtRepayments) : null;
 
                   return (
                     <tr key={customer.customer_id} className={`hover:bg-slate-50 transition-colors ${hasDebt ? 'bg-amber-50/15' : ''}`}>
@@ -587,15 +993,14 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
 
                       {/* Type Badge */}
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          customer.customer_type === 'Wholesale'
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${customer.customer_type === 'Wholesale'
                             ? 'bg-purple-100 text-purple-800'
                             : customer.customer_type === 'Restaurant'
-                            ? 'bg-blue-100 text-blue-800'
-                            : customer.customer_type === 'Supermarket'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}>
+                              ? 'bg-blue-100 text-blue-800'
+                              : customer.customer_type === 'Supermarket'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-100 text-slate-700'
+                          }`}>
                           {customer.customer_type}
                         </span>
                       </td>
@@ -624,20 +1029,30 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                         ₦{customer.total_spent.toLocaleString()}
                       </td>
 
-                      {/* Debt Balance */}
+                      {/* Debt Balance & Aging */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         {hasDebt ? (
-                          <div className="flex items-center space-x-1.5">
-                            <span className="px-2 py-0.5 rounded text-xs font-black font-mono bg-rose-100 text-rose-800 border border-rose-300">
-                              ₦{debtBalance.toLocaleString()}
-                            </span>
-                            <button
-                              onClick={() => handleOpenSettleDebt(customer)}
-                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-                              title="Record debt repayment"
-                            >
-                              Settle
-                            </button>
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="px-2 py-0.5 rounded text-xs font-black font-mono bg-rose-100 text-rose-800 border border-rose-300">
+                                ₦{debtBalance.toLocaleString()}
+                              </span>
+                              <button
+                                onClick={() => handleOpenSettleDebt(customer)}
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                title="Record debt repayment"
+                              >
+                                Settle
+                              </button>
+                            </div>
+                            {aging && (
+                              <div>
+                                <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-bold border ${aging.badgeClass}`} title={aging.earliestUnpaidDate ? `Earliest unsettled invoice: ${aging.earliestUnpaidDate} (${aging.earliestUnpaidTxnId})` : undefined}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${aging.dotColor}`}></span>
+                                  <span>{aging.label}</span>
+                                </span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <span className="text-emerald-700 text-xs font-medium flex items-center space-x-1">
@@ -668,18 +1083,30 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                               title="Settle debt balance"
                             >
                               <Wallet className="w-3 h-3" />
-                              <span>Pay Debt</span>
+                              <span>Pay</span>
                             </button>
                           )}
+
+                          {/* Statement of Account Action */}
+                          <button
+                            onClick={() => {
+                              setCustomerForStatement(customer);
+                              setIsStatementModalOpen(true);
+                            }}
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-[11px] font-semibold flex items-center space-x-1"
+                            title="Generate and print Statement of Account"
+                          >
+                            <FileText className="w-3 h-3 text-blue-600" />
+                            <span>Statement</span>
+                          </button>
 
                           {/* Discount Rate Button */}
                           <button
                             onClick={() => handleInitiateEditDiscount(customer)}
-                            className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center space-x-1 border transition-colors ${
-                              customer.discount_percent && customer.discount_percent > 0
+                            className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center space-x-1 border transition-colors ${customer.discount_percent && customer.discount_percent > 0
                                 ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
                                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                            }`}
+                              }`}
                             title={canManageDiscounts ? 'Set or modify discount rate' : 'Manager or Admin PIN required to set discount'}
                           >
                             {canManageDiscounts ? (
@@ -934,11 +1361,10 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                               setSelectedBankAccountId(def.id);
                             }
                           }}
-                          className={`p-2 rounded-lg border text-center flex flex-col items-center justify-center space-y-1 transition-all ${
-                            isSelected
+                          className={`p-2 rounded-lg border text-center flex flex-col items-center justify-center space-y-1 transition-all ${isSelected
                               ? 'bg-emerald-50 border-emerald-600 text-emerald-900 font-bold shadow-xs'
                               : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                          }`}
+                            }`}
                         >
                           <Icon className={`w-4 h-4 ${isSelected ? 'text-emerald-600' : 'text-slate-400'}`} />
                           <span className="text-[10px] leading-tight">{pm.label}</span>
@@ -1146,10 +1572,18 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-200 my-8">
             <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
               <div>
-                <span className="font-mono text-xs text-emerald-400 font-bold">
-                  {selectedCustomerForDrawer.customer_id}
-                </span>
-                <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                <div className="flex items-center space-x-2">
+                  <span className="font-mono text-xs text-emerald-400 font-bold">
+                    {selectedCustomerForDrawer.customer_id}
+                  </span>
+                  {selectedCustomerDrawerAging && (
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center space-x-1 ${selectedCustomerDrawerAging.badgeClass}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${selectedCustomerDrawerAging.dotColor}`}></span>
+                      <span>{selectedCustomerDrawerAging.label}</span>
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-base font-bold text-white flex items-center space-x-2 mt-0.5">
                   <span>{selectedCustomerForDrawer.full_name}</span>
                   {(Number(selectedCustomerForDrawer.balance) || 0) > 0 && (
                     <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-600 text-white">
@@ -1161,33 +1595,45 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                   {selectedCustomerForDrawer.customer_type} Buyer • Registered {selectedCustomerForDrawer.registration_date}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedCustomerForDrawer(null)}
-                className="p-1 text-slate-400 hover:text-white rounded"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomerForStatement(selectedCustomerForDrawer);
+                    setIsStatementModalOpen(true);
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow-xs transition-colors"
+                  title="Generate and print official Statement of Account"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Statement</span>
+                </button>
+                <button
+                  onClick={() => setSelectedCustomerForDrawer(null)}
+                  className="p-1 text-slate-400 hover:text-white rounded"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Modal Tabs */}
             <div className="flex border-b border-slate-200 px-5 pt-3 bg-slate-50 gap-4 text-xs font-semibold">
               <button
                 onClick={() => setDrawerTab('overview')}
-                className={`pb-2.5 transition-all border-b-2 ${
-                  drawerTab === 'overview'
+                className={`pb-2.5 transition-all border-b-2 ${drawerTab === 'overview'
                     ? 'border-emerald-600 text-emerald-700 font-bold'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
+                  }`}
               >
                 Account Overview
               </button>
               <button
                 onClick={() => setDrawerTab('sales')}
-                className={`pb-2.5 transition-all border-b-2 flex items-center space-x-1 ${
-                  drawerTab === 'sales'
+                className={`pb-2.5 transition-all border-b-2 flex items-center space-x-1 ${drawerTab === 'sales'
                     ? 'border-emerald-600 text-emerald-700 font-bold'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
+                  }`}
               >
                 <span>All Orders</span>
                 <span className="text-[10px] px-1.5 rounded-full bg-slate-200 text-slate-700 font-mono">
@@ -1196,13 +1642,15 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
               </button>
               <button
                 onClick={() => setDrawerTab('debt_history')}
-                className={`pb-2.5 transition-all border-b-2 flex items-center space-x-1.5 ${
-                  drawerTab === 'debt_history'
+                className={`pb-2.5 transition-all border-b-2 flex items-center space-x-1.5 ${drawerTab === 'debt_history'
                     ? 'border-emerald-600 text-emerald-700 font-bold'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
+                  }`}
               >
-                <span>Credit & Repayment Ledger</span>
+                <span>Unified Financial Ledger</span>
+                <span className="text-[10px] px-1.5 rounded-full bg-slate-200 text-slate-700 font-mono">
+                  {customerUnifiedLedger.length}
+                </span>
                 {(Number(selectedCustomerForDrawer.balance) || 0) > 0 && (
                   <span className="w-2 h-2 rounded-full bg-rose-600"></span>
                 )}
@@ -1210,7 +1658,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
             </div>
 
             <div className="p-5 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
-              
+
               {drawerTab === 'overview' && (
                 <>
                   {/* Quick stats banner */}
@@ -1235,19 +1683,16 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                       </span>
                     </div>
 
-                    <div className={`p-3 rounded-xl border text-center ${
-                      (Number(selectedCustomerForDrawer.balance) || 0) > 0 
-                        ? 'bg-rose-50 border-rose-200' 
+                    <div className={`p-3 rounded-xl border text-center ${(Number(selectedCustomerForDrawer.balance) || 0) > 0
+                        ? 'bg-rose-50 border-rose-200'
                         : 'bg-emerald-50 border-emerald-200'
-                    }`}>
-                      <span className={`text-[10px] uppercase font-bold block ${
-                        (Number(selectedCustomerForDrawer.balance) || 0) > 0 ? 'text-rose-800' : 'text-emerald-800'
                       }`}>
+                      <span className={`text-[10px] uppercase font-bold block ${(Number(selectedCustomerForDrawer.balance) || 0) > 0 ? 'text-rose-800' : 'text-emerald-800'
+                        }`}>
                         Current Balance Due
                       </span>
-                      <span className={`text-base font-black font-mono block ${
-                        (Number(selectedCustomerForDrawer.balance) || 0) > 0 ? 'text-rose-900' : 'text-emerald-900'
-                      }`}>
+                      <span className={`text-base font-black font-mono block ${(Number(selectedCustomerForDrawer.balance) || 0) > 0 ? 'text-rose-900' : 'text-emerald-900'
+                        }`}>
                         ₦{(Number(selectedCustomerForDrawer.balance) || 0).toLocaleString()}
                       </span>
                       <span className="text-[9px] block text-slate-500">
@@ -1307,102 +1752,166 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
 
               {drawerTab === 'debt_history' && (
                 <div className="space-y-4">
-                  {/* Balance Action Header */}
-                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                    <div>
-                      <div className="text-[10px] uppercase font-bold text-slate-500">Current Outstanding Debt</div>
-                      <div className="text-xl font-black text-rose-700 font-mono">
-                        ₦{(Number(selectedCustomerForDrawer.balance) || 0).toLocaleString()}
+                  {/* Balance & Financial Position Summary */}
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] uppercase font-bold text-slate-500">Current Outstanding Debt</div>
+                        <div className="flex items-center space-x-2 mt-0.5">
+                          <span className="text-2xl font-black text-rose-700 font-mono">
+                            ₦{(Number(selectedCustomerForDrawer.balance) || 0).toLocaleString()}
+                          </span>
+                          {selectedCustomerDrawerAging && (
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center space-x-1 ${selectedCustomerDrawerAging.badgeClass}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${selectedCustomerDrawerAging.dotColor}`}></span>
+                              <span>{selectedCustomerDrawerAging.label}</span>
+                            </span>
+                          )}
+                        </div>
+                        {selectedCustomerDrawerAging?.earliestUnpaidDate && (
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Oldest unsettled invoice: {selectedCustomerDrawerAging.earliestUnpaidDate} ({selectedCustomerDrawerAging.earliestUnpaidTxnId})
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCustomerForStatement(selectedCustomerForDrawer);
+                            setIsStatementModalOpen(true);
+                          }}
+                          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center space-x-1.5 shadow-xs transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Print Statement</span>
+                        </button>
+
+                        {(Number(selectedCustomerForDrawer.balance) || 0) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSettleDebt(selectedCustomerForDrawer)}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center space-x-1.5 shadow-xs transition-colors"
+                          >
+                            <Wallet className="w-3.5 h-3.5" />
+                            <span>Settle Debt Now</span>
+                          </button>
+                        )}
                       </div>
                     </div>
-                    {(Number(selectedCustomerForDrawer.balance) || 0) > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenSettleDebt(selectedCustomerForDrawer)}
-                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center space-x-1 shadow-xs"
-                      >
-                        <Wallet className="w-3.5 h-3.5" />
-                        <span>Settle Debt Now</span>
-                      </button>
-                    )}
-                  </div>
 
-                  {/* Repayment History Records */}
-                  <div>
-                    <h5 className="font-bold text-slate-900 mb-2 flex items-center space-x-1.5">
-                      <History className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Debt Repayments Recorded ({customerRepayments.length})</span>
-                    </h5>
-                    {customerRepayments.length === 0 ? (
-                      <p className="text-slate-400 py-3 text-center bg-slate-50 rounded-lg">No debt repayments recorded for this customer yet.</p>
-                    ) : (
-                      <div className="border border-slate-200 rounded-lg overflow-hidden">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase">
-                            <tr>
-                              <th className="py-2 px-3">Date</th>
-                              <th className="py-2 px-3">Amount</th>
-                              <th className="py-2 px-3">Channel</th>
-                              <th className="py-2 px-3">Balance After</th>
-                              <th className="py-2 px-3 text-right">Receipt</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                            {customerRepayments.map(rep => (
-                              <tr key={rep.repayment_id} className="hover:bg-slate-50">
-                                <td className="py-2 px-3 text-slate-600">{rep.date_time}</td>
-                                <td className="py-2 px-3 font-bold text-emerald-700">₦{rep.amount_paid.toLocaleString()}</td>
-                                <td className="py-2 px-3 text-slate-700">
-                                  <div className="font-semibold">{rep.payment_method}</div>
-                                  {rep.pos_terminal_name && <div className="text-[9px] text-purple-700 font-sans font-medium">{rep.pos_terminal_name}</div>}
-                                  {rep.bank_name && !rep.pos_terminal_name && <div className="text-[9px] text-blue-700 font-sans font-medium">{rep.bank_name}</div>}
-                                  {rep.reference_number && <div className="text-[9px] text-slate-500 font-mono">Ref: {rep.reference_number}</div>}
-                                </td>
-                                <td className="py-2 px-3 text-slate-900 font-bold">₦{rep.remaining_balance.toLocaleString()}</td>
-                                <td className="py-2 px-3 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePrintSlip(rep)}
-                                    className="p-1 text-slate-500 hover:text-emerald-700"
-                                    title="Print repayment slip"
-                                  >
-                                    <Printer className="w-3.5 h-3.5 inline" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    {/* Quick KPI stats strip */}
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200 text-center font-mono">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[9px] text-slate-500 font-sans block uppercase font-bold">Total Invoiced</span>
+                        <span className="text-xs font-bold text-slate-800">
+                          ₦{customerUnifiedLedger.reduce((sum, i) => sum + i.debit, 0).toLocaleString()}
+                        </span>
                       </div>
-                    )}
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[9px] text-emerald-700 font-sans block uppercase font-bold">Total Settled / Paid</span>
+                        <span className="text-xs font-bold text-emerald-700">
+                          ₦{customerUnifiedLedger.reduce((sum, i) => sum + i.credit, 0).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border border-slate-200">
+                        <span className="text-[9px] text-rose-700 font-sans block uppercase font-bold">Balance Remaining</span>
+                        <span className="text-xs font-black text-rose-700">
+                          ₦{(Number(selectedCustomerForDrawer.balance) || 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Credit Purchases Record */}
+                  {/* Unified Chronological Ledger Table */}
                   <div>
-                    <h5 className="font-bold text-slate-900 mb-2 flex items-center space-x-1.5">
-                      <CreditCard className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Credit Purchases (Pay Later) ({customerCreditSales.length})</span>
-                    </h5>
-                    {customerCreditSales.length === 0 ? (
-                      <p className="text-slate-400 py-3 text-center bg-slate-50 rounded-lg">No credit purchases made by this customer.</p>
+                    <div className="flex items-center justify-between mb-2">
+                      <h5 className="font-bold text-slate-900 flex items-center space-x-1.5">
+                        <History className="w-4 h-4 text-emerald-600" />
+                        <span>Unified Financial Ledger & Timeline ({customerUnifiedLedger.length} events)</span>
+                      </h5>
+                      <span className="text-[10px] text-slate-500">
+                        Chronological sequence with real-time running balance
+                      </span>
+                    </div>
+
+                    {customerUnifiedLedger.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
+                        No credit purchases or debt repayments recorded for this customer yet.
+                      </div>
                     ) : (
-                      <div className="space-y-2">
-                        {customerCreditSales.map(cs => (
-                          <div key={cs.transaction_id} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center text-xs">
-                            <div>
-                              <div className="font-bold font-mono text-slate-800">{cs.transaction_id}</div>
-                              <div className="text-[11px] text-slate-500">
-                                {cs.date_time} • Due: {cs.payment_due_date || 'Prompt'}
-                              </div>
-                            </div>
-                            <div className="text-right font-mono">
-                              <div className="font-bold text-slate-900">Total: ₦{cs.final_amount.toLocaleString()}</div>
-                              <div className="text-[10px] text-rose-600 font-semibold">
-                                Debt: ₦{(cs.balance_due ?? (cs.final_amount - (cs.deposit_amount || 0))).toLocaleString()}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase border-b border-slate-200">
+                              <tr>
+                                <th className="py-2.5 px-3">Date & Time</th>
+                                <th className="py-2.5 px-3">Type & Ref</th>
+                                <th className="py-2.5 px-3">Particulars & Channel</th>
+                                <th className="py-2.5 px-3 text-right">Debit (+)</th>
+                                <th className="py-2.5 px-3 text-right">Credit (-)</th>
+                                <th className="py-2.5 px-3 text-right">Balance Due</th>
+                                <th className="py-2.5 px-3 text-center">Receipt</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                              {customerUnifiedLedger.map((entry) => {
+                                return (
+                                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="py-2 px-3 text-slate-600 whitespace-nowrap">
+                                      {entry.date_time}
+                                    </td>
+                                    <td className="py-2 px-3 whitespace-nowrap">
+                                      <div className="flex items-center space-x-1">
+                                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${entry.type === 'CREDIT_INVOICE'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : entry.type === 'DOWN_PAYMENT'
+                                              ? 'bg-purple-100 text-purple-800'
+                                              : entry.type === 'DEBT_REPAYMENT'
+                                                ? 'bg-emerald-100 text-emerald-800'
+                                                : 'bg-slate-200 text-slate-800'
+                                          }`}>
+                                          {entry.type === 'CREDIT_INVOICE' ? 'Invoice' : entry.type === 'DOWN_PAYMENT' ? 'Deposit' : entry.type === 'DEBT_REPAYMENT' ? 'Repayment' : 'Opening'}
+                                        </span>
+                                        <span className="font-bold text-slate-800">{entry.ref_number}</span>
+                                      </div>
+                                    </td>
+                                    <td className="py-2 px-3 font-sans text-slate-700">
+                                      <div className="font-medium text-slate-900">{entry.description}</div>
+                                      {entry.channel_details && (
+                                        <div className="text-[10px] text-slate-500 font-mono">{entry.channel_details}</div>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-bold text-rose-700 whitespace-nowrap">
+                                      {entry.debit > 0 ? `₦${entry.debit.toLocaleString()}` : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-bold text-emerald-700 whitespace-nowrap">
+                                      {entry.credit > 0 ? `₦${entry.credit.toLocaleString()}` : '—'}
+                                    </td>
+                                    <td className="py-2 px-3 text-right font-black text-slate-900 whitespace-nowrap">
+                                      ₦{entry.running_balance.toLocaleString()}
+                                    </td>
+                                    <td className="py-2 px-3 text-center whitespace-nowrap">
+                                      {entry.repayment_raw ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePrintSlip(entry.repayment_raw!)}
+                                          className="p-1 text-slate-500 hover:text-emerald-700 transition-colors"
+                                          title="Print repayment receipt slip"
+                                        >
+                                          <Printer className="w-3.5 h-3.5 inline" />
+                                        </button>
+                                      ) : (
+                                        <span className="text-slate-300 text-[10px]">—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1482,7 +1991,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                   <div className="text-[11px] text-slate-500">{editingDiscountCustomer.customer_id} • {editingDiscountCustomer.customer_type}</div>
                 </div>
                 <span className="text-[10px] px-2 py-0.5 bg-slate-200 text-slate-700 rounded font-mono font-semibold">
-                  {pinOverrideStaff 
+                  {pinOverrideStaff
                     ? `Auth: ${pinOverrideStaff.staff_name} (${pinOverrideStaff.role})`
                     : `Auth: ${activeStaff.staff_name} (${activeStaff.role})`}
                 </span>
@@ -1504,11 +2013,10 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                       key={pct}
                       type="button"
                       onClick={() => setDiscountPercentInput(pct)}
-                      className={`flex-1 py-1.5 rounded border text-xs font-semibold ${
-                        discountPercentInput === pct
+                      className={`flex-1 py-1.5 rounded border text-xs font-semibold ${discountPercentInput === pct
                           ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
+                        }`}
                     >
                       {pct}%
                     </button>
@@ -1657,11 +2165,10 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                           key={pct}
                           type="button"
                           onClick={() => setFormData({ ...formData, discount_percent: pct })}
-                          className={`flex-1 py-1 text-[11px] rounded border ${
-                            formData.discount_percent === pct
+                          className={`flex-1 py-1 text-[11px] rounded border ${formData.discount_percent === pct
                               ? 'bg-emerald-600 text-white font-bold'
                               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
+                            }`}
                         >
                           {pct}%
                         </button>
@@ -1867,6 +2374,406 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
           </div>
         </div>
       )}
+
+      {/* Official Customer Statement of Account Modal */}
+      {isStatementModalOpen && customerForStatement && (() => {
+        const statementLedger = buildCustomerUnifiedLedger(customerForStatement, sales, customerDebtRepayments);
+        const statementAging = getCustomerDebtAging(customerForStatement, sales, customerDebtRepayments);
+        const totalInvoiced = statementLedger.reduce((sum, e) => sum + e.debit, 0);
+        const totalSettled = statementLedger.reduce((sum, e) => sum + e.credit, 0);
+        const currentBalance = Number(customerForStatement.balance) || 0;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden border border-slate-200 my-8">
+
+              {/* Modal Top Header */}
+              <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-5 h-5 text-blue-400" />
+                  <div>
+                    <h3 className="font-bold text-sm">Customer Statement of Account</h3>
+                    <p className="text-[11px] text-slate-400 font-mono">
+                      {customerForStatement.full_name} ({customerForStatement.customer_id})
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => handlePrintStatement(customerForStatement)}
+                    disabled={isPrinting}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center space-x-1.5 shadow-xs transition-colors"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>{isPrinting ? 'Printing...' : 'Print Statement'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsStatementModalOpen(false);
+                      setCustomerForStatement(null);
+                    }}
+                    className="p-1 text-slate-400 hover:text-white rounded"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Document Body */}
+              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-xs text-slate-700 font-sans">
+
+                {/* Corporate Header */}
+                <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
+                      {receiptSettings.business_name || 'KIID FROM DREAM LTD'}
+                    </h2>
+                    {receiptSettings.tagline && (
+                      <p className="text-xs text-slate-500 italic">{receiptSettings.tagline}</p>
+                    )}
+                    {receiptSettings.address_line1 && (
+                      <p className="text-xs text-slate-600 mt-0.5">{receiptSettings.address_line1}</p>
+                    )}
+                    {receiptSettings.phone_numbers && (
+                      <p className="text-xs text-slate-600">Tel: {receiptSettings.phone_numbers}</p>
+                    )}
+                    {receiptSettings.tax_or_cac_number && (
+                      <p className="text-[11px] text-slate-400 font-mono">CAC / RC: {receiptSettings.tax_or_cac_number}</p>
+                    )}
+                  </div>
+
+                  <div className="sm:text-right font-mono text-xs">
+                    <span className="px-2.5 py-1 bg-slate-900 text-white font-bold rounded text-[10px] tracking-wider uppercase inline-block">
+                      OFFICIAL STATEMENT OF ACCOUNT
+                    </span>
+                    <div className="mt-2 text-slate-500 text-[11px]">
+                      <div>Date: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                      <div>Ref: SOA-{customerForStatement.customer_id}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Customer Particulars & Aging Rating */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Account Particulars</span>
+                    <div className="text-sm font-bold text-slate-900">{customerForStatement.full_name}</div>
+                    <div className="text-slate-600 font-mono text-[11px]">ID: {customerForStatement.customer_id}</div>
+                    <div className="text-slate-600">Phone: {customerForStatement.phone_number}</div>
+                    {customerForStatement.email && <div className="text-slate-600">Email: {customerForStatement.email}</div>}
+                    {customerForStatement.address && <div className="text-slate-600">Address: {customerForStatement.address}</div>}
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Account Credit Status</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm font-bold text-slate-900">
+                        {currentBalance > 0 ? 'Active Account (Debt Outstanding)' : 'Account Fully Settled (No Debt)'}
+                      </span>
+                    </div>
+                    {statementAging ? (
+                      <div className="pt-1">
+                        <span className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-bold border ${statementAging.badgeClass}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${statementAging.dotColor}`}></span>
+                          <span>{statementAging.label}</span>
+                        </span>
+                        {statementAging.earliestUnpaidDate && (
+                          <div className="text-[10px] text-slate-500 mt-1">
+                            Oldest Unsettled Invoice: {statementAging.earliestUnpaidDate}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-emerald-700 font-semibold text-xs pt-1 flex items-center space-x-1">
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>All debts settled in full</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Financial Summary KPI Cards */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-200 text-center font-mono">
+                    <span className="text-[10px] uppercase font-bold text-blue-900 font-sans block">Total Credit Invoiced</span>
+                    <span className="text-base font-bold text-blue-950">₦{totalInvoiced.toLocaleString()}</span>
+                  </div>
+                  <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-200 text-center font-mono">
+                    <span className="text-[10px] uppercase font-bold text-emerald-900 font-sans block">Total Settlements Received</span>
+                    <span className="text-base font-bold text-emerald-950">₦{totalSettled.toLocaleString()}</span>
+                  </div>
+                  <div className={`p-3 rounded-xl border text-center font-mono ${currentBalance > 0 ? 'bg-rose-50/70 border-rose-300' : 'bg-slate-50 border-slate-200'}`}>
+                    <span className={`text-[10px] uppercase font-bold font-sans block ${currentBalance > 0 ? 'text-rose-900' : 'text-slate-600'}`}>
+                      Current Outstanding Balance Due
+                    </span>
+                    <span className={`text-base font-black ${currentBalance > 0 ? 'text-rose-950' : 'text-emerald-700'}`}>
+                      ₦{currentBalance.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Transaction Ledger Table */}
+                <div className="space-y-2">
+                  <div className="font-bold text-slate-900 flex items-center space-x-1.5">
+                    <History className="w-4 h-4 text-slate-600" />
+                    <span>Statement Transaction Ledger ({statementLedger.length} items)</span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold text-[10px] uppercase border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Date & Time</th>
+                          <th className="py-2.5 px-3">Type & Ref</th>
+                          <th className="py-2.5 px-3">Particulars / Details</th>
+                          <th className="py-2.5 px-3 text-right">Debit (+)</th>
+                          <th className="py-2.5 px-3 text-right">Credit (-)</th>
+                          <th className="py-2.5 px-3 text-right">Balance Due</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                        {statementLedger.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-6 text-center text-slate-400 font-sans">
+                              No credit activity recorded for this customer.
+                            </td>
+                          </tr>
+                        ) : (
+                          statementLedger.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 text-slate-600 whitespace-nowrap">{item.date_time}</td>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <span className="font-bold text-slate-800">{item.ref_number}</span>
+                                <span className="text-[10px] text-slate-400 block font-sans">{item.type.replace('_', ' ')}</span>
+                              </td>
+                              <td className="py-2 px-3 font-sans text-slate-700">
+                                <div>{item.description}</div>
+                                {item.channel_details && (
+                                  <div className="text-[10px] text-slate-400 font-mono">{item.channel_details}</div>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-right text-rose-700 font-bold whitespace-nowrap">
+                                {item.debit > 0 ? `₦${item.debit.toLocaleString()}` : '—'}
+                              </td>
+                              <td className="py-2 px-3 text-right text-emerald-700 font-bold whitespace-nowrap">
+                                {item.credit > 0 ? `₦${item.credit.toLocaleString()}` : '—'}
+                              </td>
+                              <td className="py-2 px-3 text-right font-black text-slate-900 whitespace-nowrap">
+                                ₦{item.running_balance.toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Payment Remittance Bank Account Details */}
+                {activeBankAccounts.length > 0 && (
+                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-[11px] font-bold text-slate-800 flex items-center space-x-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Payment Remittance Accounts (For Electronic Wire Transfers)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {activeBankAccounts.map((b) => (
+                        <div key={b.id} className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-slate-900">{b.bank_name}</div>
+                            <div className="font-mono text-emerald-700 font-semibold">{b.account_number}</div>
+                            {b.account_name && <div className="text-[10px] text-slate-500">{b.account_name}</div>}
+                          </div>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-bold">
+                            {b.provider}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Signatures & Certification */}
+                <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-200">
+                  <div className="text-center space-y-3">
+                    <div className="border-b border-slate-300 pb-1 w-3/4 mx-auto text-[11px] text-slate-500">
+                      Authorized Signatory & Stamp
+                    </div>
+                    <div className="font-bold text-xs text-slate-800">{receiptSettings.business_name || 'KIID FROM DREAM'}</div>
+                  </div>
+                  <div className="text-center space-y-3">
+                    <div className="border-b border-slate-300 pb-1 w-3/4 mx-auto text-[11px] text-slate-500">
+                      Customer Acknowledgement
+                    </div>
+                    <div className="font-bold text-xs text-slate-800">{customerForStatement.full_name}</div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Modal Actions Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
+                <span className="text-[11px] text-slate-500">
+                  Audited financial record generated from SQLite WAL transaction ledger.
+                </span>
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsStatementModalOpen(false);
+                      setCustomerForStatement(null);
+                    }}
+                    className="px-4 py-2 border border-slate-200 rounded-lg font-medium text-slate-700 hover:bg-slate-100 text-xs"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePrintStatement(customerForStatement)}
+                    disabled={isPrinting}
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs flex items-center space-x-1.5 shadow-sm transition-colors"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>{isPrinting ? 'Printing...' : 'Print Official Statement'}</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Hidden Printable Statement of Account for Native / Browser Print */}
+      {statementToPrint && (() => {
+        const statementLedger = buildCustomerUnifiedLedger(statementToPrint, sales, customerDebtRepayments);
+        const statementAging = getCustomerDebtAging(statementToPrint, sales, customerDebtRepayments);
+        const totalInvoiced = statementLedger.reduce((sum, e) => sum + e.debit, 0);
+        const totalSettled = statementLedger.reduce((sum, e) => sum + e.credit, 0);
+        const currentBalance = Number(statementToPrint.balance) || 0;
+
+        return (
+          <div id="printable-statement-of-account" className="hidden print:block fixed inset-0 bg-white text-black p-8 font-sans text-xs">
+            <style>{`
+              @media print {
+                body * {
+                  visibility: hidden !important;
+                }
+                #printable-statement-of-account, #printable-statement-of-account * {
+                  visibility: visible !important;
+                }
+                #printable-statement-of-account {
+                  position: absolute !important;
+                  left: 0 !important;
+                  top: 0 !important;
+                  width: 100% !important;
+                  display: block !important;
+                  background: white !important;
+                  color: black !important;
+                }
+              }
+            `}</style>
+
+            {/* Header */}
+            <div className="border-b-2 border-black pb-4 mb-4 flex justify-between items-start">
+              <div>
+                <h1 className="text-xl font-bold uppercase">{receiptSettings.business_name || 'KIID FROM DREAM LTD'}</h1>
+                {receiptSettings.tagline && <p className="text-xs italic">{receiptSettings.tagline}</p>}
+                {receiptSettings.address_line1 && <p className="text-xs">{receiptSettings.address_line1}</p>}
+                {receiptSettings.phone_numbers && <p className="text-xs">Tel: {receiptSettings.phone_numbers}</p>}
+                {receiptSettings.tax_or_cac_number && <p className="text-xs font-mono">RC / CAC: {receiptSettings.tax_or_cac_number}</p>}
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold uppercase border border-black px-2 py-1 inline-block">
+                  STATEMENT OF ACCOUNT
+                </div>
+                <div className="text-[11px] mt-1 font-mono">Date: {new Date().toLocaleDateString('en-GB')}</div>
+                <div className="text-[11px] font-mono">Ref: SOA-{statementToPrint.customer_id}</div>
+              </div>
+            </div>
+
+            {/* Customer & Account Details */}
+            <div className="grid grid-cols-2 gap-4 pb-4 mb-4 border-b border-black">
+              <div>
+                <div className="font-bold text-xs uppercase mb-1">Customer Particulars:</div>
+                <div className="font-bold text-sm">{statementToPrint.full_name}</div>
+                <div>Customer ID: <span className="font-mono">{statementToPrint.customer_id}</span></div>
+                <div>Phone: {statementToPrint.phone_number}</div>
+                {statementToPrint.address && <div>Address: {statementToPrint.address}</div>}
+              </div>
+              <div>
+                <div className="font-bold text-xs uppercase mb-1">Financial Standing:</div>
+                <div>Total Credit Invoiced: <span className="font-bold font-mono">₦{totalInvoiced.toLocaleString()}</span></div>
+                <div>Total Settlements: <span className="font-bold font-mono">₦{totalSettled.toLocaleString()}</span></div>
+                <div className="font-bold text-sm mt-1">
+                  CURRENT BALANCE DUE: <span className="font-mono">₦{currentBalance.toLocaleString()}</span>
+                </div>
+                {statementAging && (
+                  <div className="text-[11px] mt-1 font-semibold">
+                    Debt Aging Status: {statementAging.label}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Transaction Ledger Table */}
+            <div className="mb-4">
+              <div className="font-bold uppercase text-xs mb-2">Transaction Ledger History</div>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-black text-[10px] uppercase font-bold">
+                    <th className="py-1 px-1">Date</th>
+                    <th className="py-1 px-1">Ref</th>
+                    <th className="py-1 px-1">Particulars</th>
+                    <th className="py-1 px-1 text-right">Debit (+)</th>
+                    <th className="py-1 px-1 text-right">Credit (-)</th>
+                    <th className="py-1 px-1 text-right">Balance Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-300 font-mono text-[11px]">
+                  {statementLedger.map((row) => (
+                    <tr key={row.id}>
+                      <td className="py-1 px-1">{row.date_time}</td>
+                      <td className="py-1 px-1 font-bold">{row.ref_number}</td>
+                      <td className="py-1 px-1 font-sans">{row.description} {row.channel_details ? `(${row.channel_details})` : ''}</td>
+                      <td className="py-1 px-1 text-right">{row.debit > 0 ? `₦${row.debit.toLocaleString()}` : '—'}</td>
+                      <td className="py-1 px-1 text-right">{row.credit > 0 ? `₦${row.credit.toLocaleString()}` : '—'}</td>
+                      <td className="py-1 px-1 text-right font-bold">₦{row.running_balance.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bank details for payment */}
+            {activeBankAccounts.length > 0 && (
+              <div className="border border-black p-3 mb-6 text-xs">
+                <div className="font-bold uppercase mb-1">Direct Bank Transfer Remittance Accounts:</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {activeBankAccounts.map(b => (
+                    <div key={b.id}>
+                      <span className="font-bold">{b.bank_name}:</span> <span className="font-mono">{b.account_number}</span> ({b.account_name || 'Corporate Account'})
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Signatures */}
+            <div className="grid grid-cols-2 gap-8 pt-6 mt-6 border-t border-black">
+              <div className="text-center space-y-2">
+                <div className="border-b border-black pb-1 w-3/4 mx-auto text-[10px]">Authorized Signature & Stamp</div>
+                <div className="font-bold">{receiptSettings.business_name || 'KIID FROM DREAM'}</div>
+              </div>
+              <div className="text-center space-y-2">
+                <div className="border-b border-black pb-1 w-3/4 mx-auto text-[10px]">Customer Signature & Date</div>
+                <div className="font-bold">{statementToPrint.full_name}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
