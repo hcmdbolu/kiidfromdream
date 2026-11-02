@@ -1133,7 +1133,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       {
         step: 4,
         title: 'Net Invoiced Turnover (Accrual)',
-        subtitle: 'Recognized invoice revenue net of discounts & returns',
+        subtitle: `Recognized invoice turnover (${creditDebtSummary.periodNewDebtIncurred > 0 ? `includes ₦${creditDebtSummary.periodNewDebtIncurred.toLocaleString()} uncollected credit` : 'all liquid'})`,
         amount: netRevenue,
         delta: netRevenue,
         type: 'subtotal',
@@ -1342,17 +1342,20 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
           </div>
         </div>
 
-        {/* Card 4: Net Realized Sales */}
+        {/* Card 4: Net Invoiced Sales (Accrual) */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-semibold text-slate-700">Net Realized Sales</span>
+            <span className="font-semibold text-slate-700">Net Invoiced Sales</span>
             <TrendingUp className="w-4 h-4 text-blue-600" />
           </div>
           <div className="text-2xl font-black text-blue-900 font-mono">
             ₦{netRevenue.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-500">
-            <span>Avg Order: ₦{averageOrderValue.toLocaleString()}</span>
+          <div className="text-[11px] text-slate-500 flex items-center justify-between">
+            <span>Accrual Billed</span>
+            <span className="text-emerald-700 font-semibold font-mono" title="Actual collected cash inflow">
+              ₦{paymentReconciliation.totalReconciled.toLocaleString()} cash
+            </span>
           </div>
         </div>
 
@@ -1374,7 +1377,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
         {/* Card 6: Outstanding Debt (Receivables Portfolio) */}
         <div className="bg-white p-4 rounded-xl border border-indigo-200 bg-indigo-50/20 shadow-sm space-y-1">
           <div className="flex items-center justify-between text-indigo-700 text-xs">
-            <span className="font-semibold text-indigo-950">Outstanding Debt</span>
+            <span className="font-semibold text-indigo-950">Accounts Receivable</span>
             <Clock className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-2xl font-black text-indigo-950 font-mono">

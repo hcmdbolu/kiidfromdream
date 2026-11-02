@@ -29,11 +29,12 @@ export type CriticalSubFilter = 'ALL_CRITICAL' | 'VOIDS_RETURNS' | 'INVENTORY_AN
 
 // Helper to determine if an event is classified as Critical vs Informational
 export const isCriticalEvent = (log: AuditLogEntry): boolean => {
+  if (!log) return false;
   if (log.severity === 'ALERT' || log.severity === 'WARNING') return true;
   const criticalActions: string[] = [
     'ORDER_VOIDED',
     'REFUND_PROCESSED',
-    'CYCLE_COUNT_ADJUSTED',
+        'CYCLE_COUNT_ADJUSTED',
     'PO_CANCELLED',
     'LOGIN_FAILED',
     'PERMISSION_DENIED',
@@ -41,7 +42,7 @@ export const isCriticalEvent = (log: AuditLogEntry): boolean => {
     'PRODUCT_DELETED',
     'DATABASE_RESET',
   ];
-  return criticalActions.includes(log.action);
+  return criticalActions.includes(log.action || '');
 };
 
 // Classify specific anomaly type for pattern analysis
@@ -50,25 +51,27 @@ export const getAnomalyType = (log: AuditLogEntry): {
   label: string;
   badgeClass: string;
 } => {
-  if (log.action === 'ORDER_VOIDED' || log.action === 'REFUND_PROCESSED' || log.action === 'PO_CANCELLED') {
+  if (!log) return { type: 'ROUTINE', label: 'Informational Routine', badgeClass: 'bg-slate-100 text-slate-600 border-slate-200' };
+  const action = log.action || '';
+  if (action === 'ORDER_VOIDED' || action === 'REFUND_PROCESSED' || action === 'PO_CANCELLED' ) {
     return {
       type: 'VOID',
       label: 'Void / Return Pattern',
       badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
     };
   }
-  if (log.action === 'CYCLE_COUNT_ADJUSTED' || log.action === 'PRODUCT_DELETED' || (log.category === 'CycleCount' && log.metadata?.variance !== 0)) {
+  if (action === 'CYCLE_COUNT_ADJUSTED' || action === 'PRODUCT_DELETED' || (log.category === 'CycleCount' && log.metadata?.variance !== 0)) {
     return {
       type: 'INVENTORY',
       label: 'Inventory Anomaly',
       badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
     };
   }
-  if (log.action === 'LOGIN_FAILED' || log.action === 'PERMISSION_DENIED' || log.action === 'MANAGER_OVERRIDE' || log.category === 'Security') {
+  if (action === 'LOGIN_FAILED' || action === 'PERMISSION_DENIED' || action === 'MANAGER_OVERRIDE' || log.category === 'Security') {
     return {
       type: 'SECURITY',
-      label: log.action === 'MANAGER_OVERRIDE' ? 'Manager Override' : 'Security Flag',
-      badgeClass: log.action === 'MANAGER_OVERRIDE' ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-red-100 text-red-800 border-red-200',
+      label: action === 'MANAGER_OVERRIDE' ? 'Manager Override' : 'Security Flag',
+      badgeClass: action === 'MANAGER_OVERRIDE' ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-red-100 text-red-800 border-red-200',
     };
   }
   if (log.severity === 'ALERT' || log.severity === 'WARNING') {
@@ -100,9 +103,10 @@ export const AuditLogManager: React.FC = () => {
 
   // High-level anomaly metrics for managers
   const patternMetrics = useMemo(() => {
-    const total = auditLogs.length;
-    const criticalLogs = auditLogs.filter(isCriticalEvent);
-    const informationalLogs = auditLogs.filter(l => !isCriticalEvent(l));
+    const safeLogs = Array.isArray(auditLogs) ? auditLogs.filter(Boolean) : [];
+    const total = safeLogs.length;
+    const criticalLogs = safeLogs.filter(isCriticalEvent);
+    const informationalLogs = safeLogs.filter(l => !isCriticalEvent(l));
 
     // Void patterns
     const voidLogs = auditLogs.filter(l => l.action === 'ORDER_VOIDED' || l.action === 'REFUND_PROCESSED' || l.action === 'PO_CANCELLED');
@@ -136,14 +140,17 @@ export const AuditLogManager: React.FC = () => {
 
   // Filtered logs with Critical vs Informational and sub-filters
   const filteredLogs = useMemo(() => {
-    return auditLogs.filter(log => {
+    const safeLogs = Array.isArray(auditLogs) ? auditLogs.filter(Boolean) : [];
+    return safeLogs.filter(log => {
+      if (!log) return false;
       // 1. Text Search
       const search = searchTerm.toLowerCase();
       const matchesSearch = 
-        log.details.toLowerCase().includes(search) ||
-        log.id.toLowerCase().includes(search) ||
-        log.staff_name.toLowerCase().includes(search) ||
-        log.action.toLowerCase().includes(search);
+        (log.details || '').toLowerCase().includes(search) ||
+        (log.id || '').toLowerCase().includes(search) ||
+        (log.staff_name || '').toLowerCase().includes(search) ||
+        (log.staff_id || '').toLowerCase().includes(search) ||
+        (log.action || '').toLowerCase().includes(search);
 
       if (!matchesSearch) return false;
 
@@ -753,7 +760,8 @@ export const AuditLogManager: React.FC = () => {
                 </tr>
               ) : (
                 filteredLogs.map(log => {
-                  const roleBadge = ROLE_BADGES[log.role] || ROLE_BADGES.Cashier;
+                  const roleKey = (log.role || 'Cashier') as UserRole;
+                  const roleBadge = ROLE_BADGES[roleKey] || ROLE_BADGES.Cashier;
                   const isCrit = isCriticalEvent(log);
                   const anomaly = getAnomalyType(log);
 

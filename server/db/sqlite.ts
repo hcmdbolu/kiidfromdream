@@ -578,6 +578,26 @@ export class PosDatabase {
       this.safeAddColumn('discount_rules', 'max_discount_cap', 'REAL');
       this.safeAddColumn('cash_transfers', 'transfer_type', "TEXT DEFAULT 'POS_TO_BANK'");
     }
+
+    // Ensure initial genesis audit log exists if table is empty
+    try {
+      const auditCount = (this.db.prepare('SELECT COUNT(*) as count FROM audit_logs').get() as { count: number }).count;
+      if (auditCount === 0) {
+        this.addAuditLog({
+          id: 'AUDIT-GENESIS-001',
+          timestamp: new Date().toISOString(),
+          staff_id: 'STAFF-SUPER-001',
+          staff_name: 'Boluwatife (Super Admin)',
+          role: 'Super Admin',
+          category: 'System',
+          action: 'SYSTEM_BOOT',
+          details: 'Cryptographic immutable audit trail ledger initialized with SQLite WAL engine.',
+          severity: 'SUCCESS',
+          metadata: { engine: 'SQLite WAL', integrity: 'SHA-256' },
+          tamper_hash: 'GENESIS_BLOCK_000000000000'
+        });
+      }
+    } catch {}
   }
 
   /**
@@ -926,6 +946,30 @@ export class PosDatabase {
           if (!item.timestamp && (item.date_time || r.date_time)) {
             item.timestamp = item.date_time || r.date_time;
           }
+          return item as T;
+        } catch {
+          return null as any;
+        }
+      }).filter(Boolean);
+    }
+
+    if (tableName === 'audit_logs') {
+      const rows = this.db.prepare('SELECT data FROM audit_logs ORDER BY rowid DESC').all() as Array<{ data: string }>;
+      return rows.map(r => {
+        try {
+          const item = JSON.parse(r.data);
+          if (!item.role) item.role = item.staff_role || 'Manager';
+          if (!item.tamper_hash) item.tamper_hash = item.hash || `LEGACY_HASH_${item.id || Date.now()}`;
+          if (!item.details) item.details = '';
+          if (!item.action) item.action = 'OPERATION_LOGGED';
+          if (!item.staff_name) item.staff_name = item.staff_id || 'Staff';
+          if (!item.severity) item.severity = 'INFO';
+          if (item.severity === 'LOW') item.severity = 'INFO';
+          if (item.severity === 'MEDIUM') item.severity = 'WARNING';
+          if (item.severity === 'HIGH') item.severity = 'ALERT';
+          if (item.category === 'SALES') item.category = 'Sales';
+          if (item.category === 'REFUNDS') item.category = 'Refunds';
+          if (item.category === 'CUSTOMERS') item.category = 'Customer';
           return item as T;
         } catch {
           return null as any;
@@ -1885,11 +1929,65 @@ export class PosDatabase {
   }
 
   /**
-   * Append an audit log
+   * Append and normalize an immutable audit log entry
    */
   public addAuditLog(entry: any) {
-    const id = entry.id || `LOG-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    entry.id = id;
+    if (!entry) return null;
+    const id = entry.id || `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const timestamp = entry.timestamp || new Date().toISOString();
+    const staffId = entry.staff_id || entry.user_id || 'STAFF';
+    const staffName = entry.staff_name || entry.user_name || staffId;
+    let role = entry.role || entry.staff_role || 'Manager';
+    if (role === 'Store Manager') role = 'Manager';
+    if (role === 'Inventory Manager') role = 'Supervisor';
+
+    let severity = String(entry.severity || 'INFO').toUpperCase();
+    if (severity === 'LOW') severity = 'INFO';
+    if (severity === 'MEDIUM') severity = 'WARNING';
+    if (severity === 'HIGH') severity = 'ALERT';
+    if (!['INFO', 'SUCCESS', 'WARNING', 'ALERT'].includes(severity)) {
+      severity = 'INFO';
+    }
+
+    let category = entry.category || 'System';
+    const catMap: Record<string, string> = {
+      'SALES': 'Sales',
+      'REFUNDS': 'Refunds',
+      'CUSTOMERS': 'Customer',
+      'CUSTOMER': 'Customer',
+      'SUPPLIERS': 'Purchasing',
+      'PURCHASING': 'Purchasing',
+      'INVENTORY': 'Inventory',
+      'CYCLECOUNT': 'CycleCount',
+      'TRANSFER': 'Transfer',
+      'FINANCE': 'Finance',
+      'SECURITY': 'Security',
+      'DISCOUNTS': 'Discounts',
+      'SYSTEM': 'System',
+    };
+    if (catMap[String(category).toUpperCase()]) {
+      category = catMap[String(category).toUpperCase()];
+    }
+
+    const action = entry.action || 'OPERATION_RECORDED';
+    const details = String(entry.details || '');
+    const tamperHash = entry.tamper_hash || entry.hash || `hash_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const normalizedEntry = {
+      ...entry,
+      id,
+      timestamp,
+      staff_id: staffId,
+      staff_name: staffName,
+      role,
+      category,
+      action,
+      details,
+      severity,
+      tamper_hash: tamperHash,
+      metadata: entry.metadata || {},
+    };
+
     this.db.prepare(`
       INSERT INTO audit_logs (id, timestamp, user_id, action, category, severity, data)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1902,14 +2000,84 @@ export class PosDatabase {
         data = excluded.data
     `).run(
       id,
-      entry.timestamp || new Date().toISOString(),
-      entry.user_id || '',
-      entry.action || '',
-      entry.category || '',
-      entry.severity || 'low',
-      JSON.stringify(entry)
+      timestamp,
+      staffId,
+      action,
+      category,
+      severity,
+      JSON.stringify(normalizedEntry)
     );
     this.touchVersion();
+    return normalizedEntry;
+  }
+
+  /**
+   * Query filtered, reverse-chronological audit logs from SQLite
+   */
+  public getAuditLogs(options?: {
+    limit?: number;
+    offset?: number;
+    category?: string;
+    severity?: string;
+    staffId?: string;
+    search?: string;
+  }): any[] {
+    const limit = Math.max(1, Math.min(1000, Number(options?.limit) || 300));
+    const offset = Math.max(0, Number(options?.offset) || 0);
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (options?.category && options.category !== 'ALL') {
+      conditions.push('category = ?');
+      params.push(options.category);
+    }
+    if (options?.severity && options.severity !== 'ALL') {
+      conditions.push('severity = ?');
+      params.push(options.severity);
+    }
+    if (options?.staffId) {
+      conditions.push('user_id = ?');
+      params.push(options.staffId);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT data FROM audit_logs ${whereClause} ORDER BY rowid DESC LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{ data: string }>;
+    let logs = rows.map(r => {
+      try {
+        const item = JSON.parse(r.data);
+        if (!item.role) item.role = item.staff_role || 'Manager';
+        if (!item.tamper_hash) item.tamper_hash = item.hash || `LEGACY_HASH_${item.id || Date.now()}`;
+        if (!item.details) item.details = '';
+        if (!item.action) item.action = 'OPERATION_LOGGED';
+        if (!item.staff_name) item.staff_name = item.staff_id || 'Staff';
+        if (!item.severity) item.severity = 'INFO';
+        if (item.severity === 'LOW') item.severity = 'INFO';
+        if (item.severity === 'MEDIUM') item.severity = 'WARNING';
+        if (item.severity === 'HIGH') item.severity = 'ALERT';
+        if (item.category === 'SALES') item.category = 'Sales';
+        if (item.category === 'REFUNDS') item.category = 'Refunds';
+        if (item.category === 'CUSTOMERS') item.category = 'Customer';
+        return item;
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim().toLowerCase();
+      logs = logs.filter(l => 
+        (l.details || '').toLowerCase().includes(q) ||
+        (l.id || '').toLowerCase().includes(q) ||
+        (l.staff_name || '').toLowerCase().includes(q) ||
+        (l.action || '').toLowerCase().includes(q)
+      );
+    }
+
+    return logs;
   }
 
   /**

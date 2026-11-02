@@ -44,7 +44,9 @@ function MainApp() {
     closeFactoryResetModal,
   } = usePos();
 
-  const [currentTab, setCurrentTab] = useState<string>('pos');
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    return activeStaff?.role === 'Super Admin' ? 'reports' : 'pos';
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [shouldOpenHeldOrders, setShouldOpenHeldOrders] = useState(false);
   
@@ -129,10 +131,10 @@ function MainApp() {
       Supervisor: ['reports', 'audit', 'staff', 'treasury', 'reconciliation', 'pos_setup', 'receipt_settings'],
       Manager: ['staff'],
       Admin: [],
-      'Super Admin': [],
+      'Super Admin': ['pos', 'shift_register'],
     };
     if (restrictedTabsForRole[role]?.includes(currentTab)) {
-      setCurrentTab('pos');
+      setCurrentTab(role === 'Super Admin' ? 'reports' : 'pos');
     }
   }, [activeStaff.role, currentTab]);
 

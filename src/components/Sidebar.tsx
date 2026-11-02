@@ -103,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: ShoppingCart, 
           badge: cartTotalQuantity > 0 ? cartTotalQuantity : null,
           badgeColor: 'bg-emerald-500 text-white',
-          allowed: true,
+          allowed: activeStaff.role !== 'Super Admin',
         },
         { 
           id: 'sales', 
@@ -178,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'audit', 
           label: 'Audit Trail Ledger', 
           icon: ShieldAlert,
-          badge: auditLogs.filter(l => l.severity === 'ALERT').length || null,
+          badge: (Array.isArray(auditLogs) ? auditLogs.filter(l => l && l.severity === 'ALERT').length : null) || null,
           badgeColor: 'bg-rose-500 text-white',
           allowed: isManagerOrAbove,
         },

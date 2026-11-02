@@ -281,6 +281,23 @@ ipcMain.handle('get-connected-scanners', async () => {
   }
 });
 
+// Native Audit Log IPC Handler (Desktop SQLite direct query fallback)
+ipcMain.handle('get-audit-logs', async (_event, options = {}) => {
+  try {
+    const dbPath = path.join(appDataDir, 'pos_database.db');
+    if (!fs.existsSync(dbPath)) return [];
+    const { DatabaseSync } = require('node:sqlite');
+    const localDb = new DatabaseSync(dbPath);
+    const limit = Math.max(1, Math.min(500, Number(options.limit) || 200));
+    const rows = localDb.prepare('SELECT data FROM audit_logs ORDER BY rowid DESC LIMIT ?').all(limit);
+    localDb.close();
+    return rows.map(r => JSON.parse(r.data));
+  } catch (err) {
+    console.warn('[ELECTRON IPC] get-audit-logs fallback error:', err.message);
+    return [];
+  }
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   startBackendServer();

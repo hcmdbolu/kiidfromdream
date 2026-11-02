@@ -839,7 +839,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setPurchaseOrders(data.purchaseOrders || []);
           setSales(data.sales || []);
           setRefunds(data.refunds || []);
-          setAuditLogs(data.auditLogs || []);
+          if (Array.isArray(data.auditLogs) && data.auditLogs.length > 0) {
+            setAuditLogs(data.auditLogs);
+          } else if (typeof window !== 'undefined' && (window as any).electronAPI?.getAuditLogs) {
+            (window as any).electronAPI.getAuditLogs({ limit: 300 }).then((logs: any[]) => {
+              if (Array.isArray(logs) && logs.length > 0) setAuditLogs(logs);
+            }).catch(() => {});
+          }
           setCycleCounts(data.cycleCounts || []);
           setStockTransfers(data.stockTransfers || []);
           if (Array.isArray(data.parkedOrders)) {
@@ -992,6 +998,13 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 }
               }));
             }
+          } else if (type === 'AUDIT_LOG_RECORDED') {
+            if (payload?.auditLog) {
+              setAuditLogs(prev => {
+                if (prev.some(l => l.id === payload.auditLog.id)) return prev;
+                return [payload.auditLog, ...prev];
+              });
+            }
           } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED' || type === 'FACTORY_RESET_COMPLETED' || type === 'FACTORY_DATA_RESET') {
             fetchDbFromServer();
           }
@@ -1102,6 +1115,16 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setAuditLogs(prev => [newLog, ...prev]);
+
+    // Asynchronously dispatch to central SQLite audit ledger
+    fetch('/api/audit-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newLog),
+    }).catch(err => {
+      console.warn('[Audit Ledger] Failed to sync audit log to central server:', err);
+    });
+
     return newLog;
   };
 

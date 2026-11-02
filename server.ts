@@ -508,6 +508,45 @@ app.post('/api/hardware/scan', (req: Request, res: Response) => {
   }
 });
 
+// 4c. Audit Trail Ledger Query & Ingestion Endpoints
+app.get('/api/audit-logs', (req: Request, res: Response) => {
+  try {
+    const { limit = '300', offset = '0', category, severity, staff_id, search } = req.query;
+    const logs = sqliteDb.getAuditLogs({
+      limit: parseInt(limit as string, 10),
+      offset: parseInt(offset as string, 10),
+      category: category as string,
+      severity: severity as string,
+      staffId: staff_id as string,
+      search: search as string,
+    });
+    res.json({ success: true, count: logs.length, logs });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/audit-logs', (req: Request, res: Response) => {
+  try {
+    const entry = req.body;
+    if (!entry || !entry.action || !entry.details) {
+      return res.status(400).json({ success: false, error: 'Audit action and details are required' });
+    }
+    const savedLog = sqliteDb.addAuditLog(entry);
+    if (savedLog) {
+      db.auditLogs.unshift(savedLog);
+      if (db.auditLogs.length > 500) {
+        db.auditLogs = db.auditLogs.slice(0, 500);
+      }
+      saveDatabase();
+      broadcast('AUDIT_LOG_RECORDED', { auditLog: savedLog });
+    }
+    res.json({ success: true, log: savedLog });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 5. Centralized Sale Transaction Creation
 app.post('/api/sales', (req: Request, res: Response) => {
   try {
@@ -623,14 +662,15 @@ app.post('/api/sales', (req: Request, res: Response) => {
       timestamp: transaction.date_time || new Date().toISOString(),
       staff_id: transaction.staff_id || 'STAFF-UNKNOWN',
       staff_name: transaction.staff_id,
-      staff_role: 'Cashier',
-      category: 'SALES',
+      role: 'Cashier',
+      category: 'Sales',
       action: 'SALE_COMPLETED',
       details: `Sale ${transaction.transaction_id} finalized for ₦${transaction.final_amount?.toLocaleString()} (${transaction.payment_method})`,
-      severity: 'LOW',
-      hash: `hash_${Date.now()}`,
+      severity: 'INFO',
+      tamper_hash: `hash_${Date.now()}`,
     };
     db.auditLogs.unshift(auditEntry);
+    sqliteDb.addAuditLog(auditEntry);
 
     // Save and broadcast
     saveDatabase();
@@ -877,18 +917,20 @@ app.post('/api/refunds', (req: Request, res: Response) => {
           ? `Bank Account: ${refund.bank_name}`
           : refund.payment_method || 'Payment Account';
 
-    db.auditLogs.unshift({
+    const refundAuditEntry = {
       id: `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: refund.date_time || new Date().toISOString(),
       staff_id: refund.staff_id || 'STAFF',
       staff_name: staffName,
-      staff_role: 'Manager',
-      category: 'REFUNDS',
-      action: 'REFUND_ISSUED',
+      role: 'Manager',
+      category: 'Refunds',
+      action: 'REFUND_PROCESSED',
       details: `${isNowFullRefund ? 'Full Refund' : 'Partial Refund'} ${refund.refund_id} for ₦${requestedAmount.toLocaleString()} on Txn ${refund.original_transaction_id}. Restocked: ${refund.quantity_refunded}KG. Deducted from: ${paymentTarget}. Authorized by: ${staffName}.`,
       severity: 'WARNING',
-      hash: `hash_${Date.now()}`,
-    });
+      tamper_hash: `hash_${Date.now()}`,
+    };
+    db.auditLogs.unshift(refundAuditEntry);
+    sqliteDb.addAuditLog(refundAuditEntry);
 
     saveDatabase();
     broadcast('REFUND_COMPLETED', {
@@ -1022,18 +1064,20 @@ app.post('/api/customers/:id/discount', (req: Request, res: Response) => {
     cust.discount_notes = discount_notes || '';
 
     // Audit log
-    db.auditLogs.unshift({
+    const custDiscEntry = {
       id: `AUDIT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       timestamp: new Date().toISOString(),
       staff_id: authorized_by || 'MANAGER',
       staff_name: authorized_by || 'Manager',
-      staff_role: 'Manager',
-      category: 'CUSTOMERS',
-      action: 'DISCOUNT_UPDATED',
+      role: 'Manager',
+      category: 'Customer',
+      action: 'DISCOUNT_APPLIED',
       details: `Customer ${cust.full_name} (${cust.customer_id}) discount rate set to ${cust.discount_percent}% by ${authorized_by}`,
-      severity: 'MEDIUM',
-      hash: `hash_${Date.now()}`,
-    });
+      severity: 'INFO',
+      tamper_hash: `hash_${Date.now()}`,
+    };
+    db.auditLogs.unshift(custDiscEntry);
+    sqliteDb.addAuditLog(custDiscEntry);
 
     saveDatabase();
     broadcast('CUSTOMER_DISCOUNT_UPDATED', {

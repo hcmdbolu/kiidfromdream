@@ -71,18 +71,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_BACKUP_RESTORE',
   ],
   'Super Admin': [
-    'CAN_POS_SALE',
-    'CAN_RECEIVE_GOODS',
-    'CAN_CYCLE_COUNT',
-    'CAN_REFUND',
-    'CAN_VIEW_INVENTORY',
-    'CAN_MANAGE_PRODUCTS',
-    'CAN_MANAGE_CATEGORIES',
-    'CAN_APPLY_DISCOUNT',
-    'CAN_CREATE_PO',
-    'CAN_CANCEL_PO',
-    'CAN_TRANSFER_STOCK',
-    'CAN_MANAGE_SUPPLIERS',
     'CAN_VIEW_REPORTS',
     'CAN_VIEW_AUDIT_LOG',
     'CAN_MANAGE_STAFF',
@@ -90,6 +78,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'CAN_BACKUP_RESTORE',
     'CAN_FACTORY_RESET',
     'CAN_MANAGE_ADMINS',
+    'CAN_VIEW_INVENTORY',
+    'CAN_MANAGE_CATEGORIES',
   ],
 };
 

@@ -15,5 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('hardware-barcode-scan', handler);
   },
   getConnectedScanners: () => ipcRenderer.invoke('get-connected-scanners'),
+  getAuditLogs: (options) => ipcRenderer.invoke('get-audit-logs', options),
   isDesktop: true,
 });
