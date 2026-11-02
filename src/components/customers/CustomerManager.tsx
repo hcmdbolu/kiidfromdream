@@ -32,9 +32,11 @@ import {
   Copy,
   ChevronRight,
   ExternalLink,
-  Download
+  Download,
+  Upload
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
+import { CustomerBulkImportModal } from './CustomerBulkImportModal';
 
 export interface DebtAgingInfo {
   category: 'Current' | '31-60 Days' | '61-90 Days' | '90+ Days';
@@ -318,6 +320,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
   } = usePos();
 
   const [search, setSearch] = useState('');
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<string>('All');
   const [selectedCustomerForDrawer, setSelectedCustomerForDrawer] = useState<Customer | null>(null);
   const [drawerTab, setDrawerTab] = useState<'overview' | 'sales' | 'debt_history'>('overview');
@@ -750,13 +753,26 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs shadow-sm transition-all"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Register New Customer</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={() => setIsBulkImportOpen(true)}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg font-bold text-xs shadow-xs transition-all cursor-pointer"
+            title="Bulk import customers and legacy debt ledgers via CSV"
+          >
+            <Upload className="w-4 h-4 text-emerald-700" />
+            <span>Bulk Import Customers</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="flex items-center space-x-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs shadow-sm transition-all cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Register New Customer</span>
+          </button>
+        </div>
       </div>
 
       {/* KPI Metric Cards */}
@@ -2775,6 +2791,11 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
         );
       })()}
 
+      {/* Bulk Customer & Legacy Debt Ledger Import Modal */}
+      <CustomerBulkImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+      />
     </div>
   );
 };

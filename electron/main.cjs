@@ -261,6 +261,26 @@ ipcMain.handle('open-backup-file', async () => {
   }
 });
 
+// Hardware Barcode Scanner & USB HID Detection (Optional Fallback)
+ipcMain.handle('get-connected-scanners', async () => {
+  try {
+    const HID = require('node-hid');
+    const devices = HID.devices();
+    return devices.filter(d => 
+      d.usagePage === 0x8C || 
+      /scanner|barcode|honeywell|zebra|symbol|datalogic|eyoyo|netum/i.test(d.product || '') ||
+      /scanner|barcode|honeywell|zebra|symbol|datalogic|eyoyo|netum/i.test(d.manufacturer || '')
+    ).map(d => ({
+      name: d.product || 'USB Barcode Scanner',
+      vendorId: d.vendorId,
+      productId: d.productId,
+      isHid: true
+    }));
+  } catch (err) {
+    return [];
+  }
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   startBackendServer();

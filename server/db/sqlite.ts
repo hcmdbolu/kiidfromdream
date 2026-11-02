@@ -1163,6 +1163,294 @@ export class PosDatabase {
   }
 
   /**
+   * Pre-migration point-in-time snapshot backup using atomic VACUUM INTO
+   */
+  public createMigrationBackup(tag: string = 'migration'): string | null {
+    try {
+      const backupDir = path.resolve(path.dirname(this.dbPath), 'backups');
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.resolve(backupDir, `pos_database_pre_${tag}_${timestamp}.db`);
+      const escapedPath = backupPath.replace(/'/g, "''");
+      this.db.exec(`VACUUM INTO '${escapedPath}';`);
+      console.log(`[SQLITE] Migration point-in-time snapshot created: ${backupPath}`);
+      return backupPath;
+    } catch (err: any) {
+      console.warn('[SQLITE] Pre-migration snapshot warning:', err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Bulk Upsert Customers with Atomic Transaction & Duplicate Resolution
+   */
+  public bulkUpsertCustomers(customers: any[], options: { updateExisting?: boolean } = {}) {
+    const updateExisting = options.updateExisting ?? true;
+    return this.transaction(() => {
+      let inserted = 0;
+      let updated = 0;
+
+      const stmtCheck = this.db.prepare('SELECT customer_id FROM customers WHERE customer_id = ? OR phone = ?');
+      const stmtInsert = this.db.prepare(`
+        INSERT INTO customers (customer_id, name, phone, balance, status, data)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      const stmtUpdate = this.db.prepare(`
+        UPDATE customers SET
+          name = ?,
+          phone = ?,
+          balance = ?,
+          status = ?,
+          data = ?
+        WHERE customer_id = ?
+      `);
+
+      for (const customer of customers) {
+        if (!customer) continue;
+        const phone = (customer.phone || customer.phone_number || '').trim();
+        const name = (customer.full_name || customer.name || '').trim();
+        if (!name && !phone) continue;
+
+        const id = customer.customer_id || customer.id || `CUST-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        customer.customer_id = id;
+        customer.id = id;
+        customer.full_name = name;
+        customer.name = name;
+        customer.phone_number = phone;
+        customer.phone = phone;
+
+        const balanceNum = Number(customer.balance) || 0;
+        customer.balance = balanceNum;
+
+        const existingRow = stmtCheck.get(id, phone) as { customer_id: string } | undefined;
+
+        if (existingRow) {
+          if (updateExisting) {
+            const targetId = existingRow.customer_id;
+            customer.customer_id = targetId;
+            customer.id = targetId;
+            stmtUpdate.run(
+              name,
+              phone,
+              balanceNum,
+              customer.status || 'Active',
+              JSON.stringify(customer),
+              targetId
+            );
+            updated++;
+          }
+        } else {
+          stmtInsert.run(
+            id,
+            name,
+            phone,
+            balanceNum,
+            customer.status || 'Active',
+            JSON.stringify(customer)
+          );
+          inserted++;
+        }
+      }
+
+      this.touchVersion();
+      return { count: inserted + updated, inserted, updated };
+    })();
+  }
+
+  /**
+   * Bulk Upsert Suppliers with Atomic Transaction & Duplicate Resolution
+   */
+  public bulkUpsertSuppliers(suppliers: any[], options: { updateExisting?: boolean } = {}) {
+    const updateExisting = options.updateExisting ?? true;
+    return this.transaction(() => {
+      let inserted = 0;
+      let updated = 0;
+
+      const stmtCheck = this.db.prepare('SELECT supplier_id FROM suppliers WHERE supplier_id = ? OR supplier_name = ?');
+      const stmtInsert = this.db.prepare(`
+        INSERT INTO suppliers (supplier_id, supplier_name, status, data)
+        VALUES (?, ?, ?, ?)
+      `);
+      const stmtUpdate = this.db.prepare(`
+        UPDATE suppliers SET
+          supplier_name = ?,
+          status = ?,
+          data = ?
+        WHERE supplier_id = ?
+      `);
+
+      for (const supplier of suppliers) {
+        if (!supplier) continue;
+        const name = (supplier.supplier_name || supplier.name || '').trim();
+        if (!name) continue;
+
+        const id = supplier.supplier_id || supplier.id || `SUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        supplier.supplier_id = id;
+        supplier.id = id;
+        supplier.supplier_name = name;
+        supplier.name = name;
+
+        const existingRow = stmtCheck.get(id, name) as { supplier_id: string } | undefined;
+
+        if (existingRow) {
+          if (updateExisting) {
+            const targetId = existingRow.supplier_id;
+            supplier.supplier_id = targetId;
+            supplier.id = targetId;
+            stmtUpdate.run(
+              name,
+              supplier.status || 'Active',
+              JSON.stringify(supplier),
+              targetId
+            );
+            updated++;
+          }
+        } else {
+          stmtInsert.run(
+            id,
+            name,
+            supplier.status || 'Active',
+            JSON.stringify(supplier)
+          );
+          inserted++;
+        }
+      }
+
+      this.touchVersion();
+      return { count: inserted + updated, inserted, updated };
+    })();
+  }
+
+  /**
+   * Bulk Upsert Purchase Orders (Multi-Item normalization & optional inventory updates)
+   */
+  public bulkUpsertPurchaseOrders(orders: any[], options: { updateExisting?: boolean; updateInventory?: boolean } = {}) {
+    const updateExisting = options.updateExisting ?? true;
+    const updateInventory = options.updateInventory ?? false;
+
+    return this.transaction(() => {
+      let inserted = 0;
+      let updated = 0;
+      let stockAdjustedItems = 0;
+
+      const stmtCheck = this.db.prepare('SELECT id FROM purchase_orders WHERE id = ? OR po_number = ?');
+      const stmtInsert = this.db.prepare(`
+        INSERT INTO purchase_orders (id, po_number, supplier_id, status, data)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      const stmtUpdate = this.db.prepare(`
+        UPDATE purchase_orders SET
+          po_number = ?,
+          supplier_id = ?,
+          status = ?,
+          data = ?
+        WHERE id = ?
+      `);
+
+      const stmtGetProd = updateInventory ? this.db.prepare('SELECT data FROM products WHERE item_sn = ?') : null;
+      const stmtUpdateProd = updateInventory ? this.db.prepare('UPDATE products SET quantity = ?, data = ? WHERE item_sn = ?') : null;
+
+      for (const po of orders) {
+        if (!po) continue;
+        const id = po.id || po.po_id || po.po_number || `PO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const poNum = po.po_number || po.po_id || id;
+        po.id = id;
+        po.po_id = id;
+        po.po_number = poNum;
+
+        // Multi-item normalization
+        if (!Array.isArray(po.items) || po.items.length === 0) {
+          const ord = Number(po.quantity_ordered) || 0;
+          const rec = po.status === 'RECEIVED' ? ord : (Number(po.quantity_received) || 0);
+          const uCost = Number(po.unit_cost) || 0;
+          po.items = [{
+            item_sn: po.item_sn || 'ITEM-DEFAULT',
+            item_name: po.item_name || po.item_sn || 'Stock Item',
+            quantity_ordered: ord,
+            quantity_received: rec,
+            quantity_pending: Math.max(0, Math.round((ord - rec) * 1000) / 1000),
+            unit_cost: uCost,
+            total_cost: Number(po.total_cost) || Math.round(ord * uCost * 100) / 100,
+          }];
+        } else {
+          po.items = po.items.map((it: any) => {
+            const ord = Number(it.quantity_ordered) || 0;
+            const rec = Number(it.quantity_received) || 0;
+            const uCost = Number(it.unit_cost) || 0;
+            return {
+              ...it,
+              quantity_ordered: ord,
+              quantity_received: rec,
+              quantity_pending: Math.max(0, Math.round((ord - rec) * 1000) / 1000),
+              unit_cost: uCost,
+              total_cost: Number(it.total_cost) || Math.round(ord * uCost * 100) / 100,
+            };
+          });
+        }
+
+        po.quantity_ordered = po.items.reduce((sum: number, it: any) => sum + (Number(it.quantity_ordered) || 0), 0);
+        po.quantity_received = po.items.reduce((sum: number, it: any) => sum + (Number(it.quantity_received) || 0), 0);
+        po.quantity_pending = Math.max(0, Math.round((po.quantity_ordered - po.quantity_received) * 1000) / 1000);
+        po.total_cost = po.items.reduce((sum: number, it: any) => sum + (Number(it.total_cost) || 0), 0);
+
+        if (!Array.isArray(po.receiving_history)) {
+          po.receiving_history = [];
+        }
+
+        const existingRow = stmtCheck.get(id, poNum) as { id: string } | undefined;
+
+        if (existingRow) {
+          if (updateExisting) {
+            const targetId = existingRow.id;
+            po.id = targetId;
+            po.po_id = targetId;
+            stmtUpdate.run(
+              poNum,
+              po.supplier_id || '',
+              po.status || 'PENDING',
+              JSON.stringify(po),
+              targetId
+            );
+            updated++;
+          }
+        } else {
+          stmtInsert.run(
+            id,
+            poNum,
+            po.supplier_id || '',
+            po.status || 'PENDING',
+            JSON.stringify(po)
+          );
+          inserted++;
+        }
+
+        // If explicitly requested to update inventory stock (for receiving POs)
+        if (updateInventory && stmtGetProd && stmtUpdateProd && po.status === 'RECEIVED') {
+          for (const it of po.items) {
+            if (it.item_sn && it.quantity_received > 0) {
+              const prodRow = stmtGetProd.get(it.item_sn) as { data: string } | undefined;
+              if (prodRow) {
+                try {
+                  const pData = JSON.parse(prodRow.data);
+                  const newQty = Math.round(((Number(pData.quantity) || 0) + it.quantity_received) * 1000) / 1000;
+                  pData.quantity = newQty;
+                  stmtUpdateProd.run(newQty, JSON.stringify(pData), it.item_sn);
+                  stockAdjustedItems++;
+                } catch {}
+              }
+            }
+          }
+        }
+      }
+
+      this.touchVersion();
+      return { count: inserted + updated, inserted, updated, stockAdjustedItems };
+    })();
+  }
+
+  /**
    * Record a sale transaction with atomic inventory updates
    */
   public recordSale(transaction: any) {

@@ -34,7 +34,8 @@ import {
   X,
   Copy,
   Check,
-  KeyRound
+  KeyRound,
+  ScanLine
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { WeightModal } from './WeightModal';
@@ -47,6 +48,9 @@ import { DiscountPinModal } from './DiscountPinModal';
 import { ConfigureDiscountPinModal } from './ConfigureDiscountPinModal';
 import { evaluateDiscountRule } from '../../utils/discountRules';
 import { DiscountRule } from '../../types';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { playScanSuccessBeep, playScanErrorBeep } from '../../utils/soundEffects';
+import { BarcodeDiagnosticModal } from '../hardware/BarcodeDiagnosticModal';
 
 interface PosTerminalProps {
   onOpenCustomerModal: () => void;
@@ -203,6 +207,67 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
   const [weighingInitialQty, setWeighingInitialQty] = useState<number>(1);
   const [isWeighModalOpen, setIsWeighModalOpen] = useState(false);
 
+  // Barcode Scanner Diagnostics & Feedback State
+  const [isBarcodeDiagnosticOpen, setIsBarcodeDiagnosticOpen] = useState(false);
+  const [scanNotice, setScanNotice] = useState<{ text: string; type: 'success' | 'error' | 'warning' } | null>(null);
+
+  const handleAddToCartFromScan = (product: Product) => {
+    if (product.quantity <= 0) {
+      playScanErrorBeep();
+      setScanNotice({ text: `Out of Stock: ${product.item_name} has 0 remaining units.`, type: 'error' });
+      setTimeout(() => setScanNotice(null), 4000);
+      return;
+    }
+
+    if (product.product_measure_unit === 'KG') {
+      setWeighingProduct(product);
+      setWeighingInitialQty(1);
+      setIsWeighModalOpen(true);
+      playScanSuccessBeep();
+      setScanNotice({ text: `Scale Required: Weigh ${product.item_name} to confirm quantity.`, type: 'success' });
+      setTimeout(() => setScanNotice(null), 3000);
+      return;
+    }
+
+    const added = addToCart(product, 1, 'BASE');
+    if (added) {
+      playScanSuccessBeep();
+      setScanNotice({ text: `⚡ Scanned: ${product.item_name} (₦${product.selling_price.toLocaleString()}) added to cart.`, type: 'success' });
+      setTimeout(() => setScanNotice(null), 3500);
+    } else {
+      playScanErrorBeep();
+      setScanNotice({ text: `Stock Limit: Cannot add more ${product.item_name} (Maximum available reached).`, type: 'warning' });
+      setTimeout(() => setScanNotice(null), 4000);
+    }
+  };
+
+  useBarcodeScanner({
+    onScan: (barcode) => {
+      if (isBarcodeDiagnosticOpen || isVoidModalOpen || isParkPromptOpen || isWeighModalOpen || isDiscountPinModalOpen) {
+        return;
+      }
+      const clean = barcode.trim().toLowerCase();
+      const match = products.find(p => 
+        p.status === 'Active' && (
+          p.item_sn.toLowerCase() === clean || 
+          (p.barcode && p.barcode.toLowerCase() === clean)
+        )
+      );
+      if (match) {
+        handleAddToCartFromScan(match);
+        if (searchQuery.toLowerCase().includes(clean)) {
+          setSearchQuery('');
+        }
+      } else {
+        playScanErrorBeep();
+        setScanNotice({ text: `⚠️ Unrecognized Barcode: "${barcode}" not found in inventory.`, type: 'warning' });
+        setTimeout(() => setScanNotice(null), 4000);
+      }
+    },
+    enabled: !isBarcodeDiagnosticOpen,
+    allowInInputs: false,
+  });
+
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState<string | null>(null);
 
@@ -250,7 +315,8 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
       const matchesCategory = selectedCategory === 'All' || product.product_category === selectedCategory;
       const matchesSearch = 
         product.item_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.item_sn.toLowerCase().includes(searchQuery.toLowerCase());
+        product.item_sn.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        Boolean(product.barcode && product.barcode.toLowerCase().includes(searchQuery.toLowerCase()));
       return matchesCategory && matchesSearch;
     });
   }, [products, selectedCategory, searchQuery]);
@@ -727,6 +793,17 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
             )}
           </button>
 
+          {/* Barcode Scanner Diagnostic & Test Tool */}
+          <button
+            type="button"
+            onClick={() => setIsBarcodeDiagnosticOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold transition-all shadow-xs cursor-pointer"
+            title="Open Barcode Scanner Diagnostic Tool and Test Connectivity"
+          >
+            <ScanLine className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+            <span className="hidden sm:inline">Scanner Test</span>
+          </button>
+
           {/* Dedicated Void / Cancel Order Button */}
           <button
             type="button"
@@ -749,6 +826,28 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
         
         {/* Left Section: Product Catalogue & Search (7 Cols) */}
         <div className="lg:col-span-7 space-y-4">
+          {/* Barcode Scanner Event Feedback Banner */}
+          {scanNotice && (
+            <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold animate-in slide-in-from-top-2 duration-150 shadow-sm ${
+              scanNotice.type === 'success'
+                ? 'bg-emerald-50 text-emerald-950 border-emerald-300'
+                : scanNotice.type === 'error'
+                ? 'bg-rose-50 text-rose-950 border-rose-300'
+                : 'bg-amber-50 text-amber-950 border-amber-300'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <ScanLine className="w-4 h-4 shrink-0 text-indigo-600" />
+                <span>{scanNotice.text}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScanNotice(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 rounded transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           {/* Search & Category Filter Bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
             <div className="relative">
@@ -2149,6 +2248,11 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({
           setIsVoidModalOpen(false);
           setOrderForVoidModal(null);
         }}
+      />
+      {/* Barcode Scanner Diagnostic & Connectivity Modal */}
+      <BarcodeDiagnosticModal
+        isOpen={isBarcodeDiagnosticOpen}
+        onClose={() => setIsBarcodeDiagnosticOpen(false)}
       />
     </div>
   );

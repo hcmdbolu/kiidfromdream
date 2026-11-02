@@ -488,6 +488,26 @@ app.get('/api/db', (req: Request, res: Response) => {
   res.json(db);
 });
 
+// 4b. Hardware Barcode Scanner Ingest & SSE Broadcast
+app.post('/api/hardware/scan', (req: Request, res: Response) => {
+  try {
+    const { barcode, source = 'hardware-hid', terminalId } = req.body;
+    if (!barcode || typeof barcode !== 'string') {
+      return res.status(400).json({ success: false, error: 'Valid barcode string is required' });
+    }
+    const cleanBarcode = barcode.trim();
+    broadcast('BARCODE_SCANNED', {
+      barcode: cleanBarcode,
+      timestamp: Date.now(),
+      source,
+      terminalId,
+    });
+    return res.json({ success: true, barcode: cleanBarcode });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 5. Centralized Sale Transaction Creation
 app.post('/api/sales', (req: Request, res: Response) => {
   try {
@@ -1069,6 +1089,34 @@ app.post('/api/customers', (req: Request, res: Response) => {
   }
 });
 
+// 8b. Bulk Import / Upsert Customers
+app.post('/api/customers/bulk', (req: Request, res: Response) => {
+  try {
+    const { customers: newCustomers, updateExisting = true } = req.body;
+    if (!Array.isArray(newCustomers) || newCustomers.length === 0) {
+      return res.status(400).json({ success: false, error: 'Customers array required' });
+    }
+
+    const backupSnapshot = sqliteDb.createMigrationBackup('customers');
+    const result = sqliteDb.bulkUpsertCustomers(newCustomers, { updateExisting });
+    db.customers = sqliteDb.getTable('customers');
+
+    saveDatabase();
+    broadcast('CUSTOMER_UPDATED', { customers: db.customers });
+
+    res.json({
+      success: true,
+      ...result,
+      backupSnapshot,
+      customers: db.customers,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/customers/bulk:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
 // 9. Add or Update Product
 app.post('/api/products', (req: Request, res: Response) => {
   try {
@@ -1637,6 +1685,41 @@ app.delete('/api/purchase-orders/:id', (req: Request, res: Response) => {
   }
 });
 
+// 12c. Bulk Import / Upsert Purchase Orders
+app.post('/api/purchase-orders/bulk', (req: Request, res: Response) => {
+  try {
+    const { purchaseOrders: newOrders, updateExisting = true, updateInventory = false } = req.body;
+    if (!Array.isArray(newOrders) || newOrders.length === 0) {
+      return res.status(400).json({ success: false, error: 'Purchase orders array required' });
+    }
+
+    const backupSnapshot = sqliteDb.createMigrationBackup('purchase_orders');
+    const result = sqliteDb.bulkUpsertPurchaseOrders(newOrders, { updateExisting, updateInventory });
+    db.purchaseOrders = sqliteDb.getTable('purchase_orders');
+    if (updateInventory) {
+      db.products = sqliteDb.getTable('products');
+    }
+
+    saveDatabase();
+    broadcast('PURCHASE_ORDERS_UPDATED', {
+      purchaseOrders: db.purchaseOrders,
+      products: db.products,
+    });
+
+    res.json({
+      success: true,
+      ...result,
+      backupSnapshot,
+      purchaseOrders: db.purchaseOrders,
+      products: db.products,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/purchase-orders/bulk:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
 // 12b. Dedicated Store Discount PIN Management (Manager / Admin)
 app.get('/api/settings/discount-pin', (_req: Request, res: Response) => {
   try {
@@ -2151,6 +2234,34 @@ app.delete('/api/suppliers/:id', (req: Request, res: Response) => {
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 16b. Bulk Import / Upsert Suppliers
+app.post('/api/suppliers/bulk', (req: Request, res: Response) => {
+  try {
+    const { suppliers: newSuppliers, updateExisting = true } = req.body;
+    if (!Array.isArray(newSuppliers) || newSuppliers.length === 0) {
+      return res.status(400).json({ success: false, error: 'Suppliers array required' });
+    }
+
+    const backupSnapshot = sqliteDb.createMigrationBackup('suppliers');
+    const result = sqliteDb.bulkUpsertSuppliers(newSuppliers, { updateExisting });
+    db.suppliers = sqliteDb.getTable('suppliers');
+
+    saveDatabase();
+    broadcast('SUPPLIERS_UPDATED', { suppliers: db.suppliers });
+
+    res.json({
+      success: true,
+      ...result,
+      backupSnapshot,
+      suppliers: db.suppliers,
+      version: db.version,
+    });
+  } catch (err: any) {
+    console.error('Error in /api/suppliers/bulk:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
   }
 });
 

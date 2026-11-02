@@ -29,7 +29,8 @@ import {
   ShieldCheck,
   TrendingUp,
   SlidersHorizontal,
-  ChevronRight
+  ChevronRight,
+  ScanLine
 } from 'lucide-react';
 import { 
   CashToBankTransfer, 
@@ -42,6 +43,7 @@ import {
   BankAndPosLedgerSummary 
 } from '../../types';
 import { matchesDateRange, extractDateKey, getLocalDateString } from '../../utils/dateUtils';
+import { BarcodeDiagnosticModal } from '../hardware/BarcodeDiagnosticModal';
 
 const PROVIDER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Moniepoint: { bg: 'bg-blue-500/10', text: 'text-blue-700', border: 'border-blue-300' },
@@ -102,6 +104,7 @@ export const CashDrawerTreasuryManager: React.FC<CashDrawerTreasuryManagerProps>
   
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
+  const [isBarcodeDiagnosticOpen, setIsBarcodeDiagnosticOpen] = useState(false);
   const [selectedCashierId, setSelectedCashierId] = useState<string>('all');
   const [terminalFilterType, setTerminalFilterType] = useState<'ALL' | 'POS_TERMINAL' | 'BANK_TRANSFER_ACCOUNT'>('ALL');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1943,6 +1946,11 @@ export const CashDrawerTreasuryManager: React.FC<CashDrawerTreasuryManagerProps>
           </div>
         </div>
       )}
+      {/* Barcode Scanner Diagnostic & Connectivity Modal */}
+      <BarcodeDiagnosticModal
+        isOpen={isBarcodeDiagnosticOpen}
+        onClose={() => setIsBarcodeDiagnosticOpen(false)}
+      />
     </div>
   );
 };

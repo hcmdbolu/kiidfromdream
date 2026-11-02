@@ -9,5 +9,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleFullscreen: () => ipcRenderer.invoke('toggle-fullscreen'),
   saveBackupFile: (data) => ipcRenderer.invoke('save-backup-file', data),
   openBackupFile: () => ipcRenderer.invoke('open-backup-file'),
+  onHardwareBarcodeScan: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('hardware-barcode-scan', handler);
+    return () => ipcRenderer.removeListener('hardware-barcode-scan', handler);
+  },
+  getConnectedScanners: () => ipcRenderer.invoke('get-connected-scanners'),
   isDesktop: true,
 });

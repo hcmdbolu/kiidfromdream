@@ -270,6 +270,9 @@ interface PosContextType {
   // Entity management
   addProduct: (product: Omit<Product, 'item_sn'>) => Product;
   bulkAddProducts: (products: Omit<Product, 'item_sn'>[]) => Product[];
+  bulkAddCustomers: (customersData: Partial<Customer>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
+  bulkAddSuppliers: (suppliersData: Partial<Supplier>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
+  bulkAddPurchaseOrders: (ordersData: Partial<PurchaseOrder>[], updateExisting?: boolean, updateInventory?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
   updateProduct: (item_sn: string, product: Partial<Product>) => void;
   deleteProduct: (item_sn: string) => void;
 
@@ -979,6 +982,16 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           } else if (type === 'CATEGORIES_UPDATED') {
             if (payload.categories) setCategories(payload.categories);
             if (payload.products) setProducts(payload.products);
+          } else if (type === 'BARCODE_SCANNED') {
+            if (payload?.barcode && typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('pos_hardware_barcode_scan', {
+                detail: {
+                  barcode: payload.barcode,
+                  timestamp: payload.timestamp || Date.now(),
+                  source: payload.source || 'sse',
+                }
+              }));
+            }
           } else if (type === 'DATABASE_RESET' || type === 'DATABASE_RESTORED' || type === 'FACTORY_RESET_COMPLETED' || type === 'FACTORY_DATA_RESET') {
             fetchDbFromServer();
           }
@@ -3515,6 +3528,181 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return createdProducts;
   };
 
+  const bulkAddCustomers = async (customersData: Partial<Customer>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!customersData.length) return { success: true, count: 0 };
+
+    const today = new Date().toISOString().split('T')[0];
+    const normalizedCustomers: Customer[] = customersData.map(c => {
+      const id = c.customer_id || getNextCustomerId();
+      return {
+        customer_id: id,
+        full_name: c.full_name || 'Legacy Customer',
+        phone_number: c.phone_number || '',
+        email: c.email || '',
+        address: c.address || '',
+        customer_type: c.customer_type || 'Retail',
+        discount_percent: Number(c.discount_percent) || 0,
+        discount_notes: c.discount_notes || '',
+        balance: Number(c.balance) || 0,
+        credit_limit: Number(c.credit_limit) || 0,
+        credit_history: c.credit_history || [],
+        repayment_history: c.repayment_history || [],
+        total_spent: Number(c.total_spent) || 0,
+        purchase_count: Number(c.purchase_count) || 0,
+        preferred_product: c.preferred_product || 'General',
+        last_purchase_date: c.last_purchase_date || 'Legacy',
+        registration_date: c.registration_date || today,
+        notes: c.notes || '',
+        is_historical_import: true,
+      };
+    });
+
+    try {
+      const res = await fetch('/api/customers/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customers: normalizedCustomers, updateExisting }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Bulk customer upload failed');
+      }
+
+      if (Array.isArray(data.customers)) {
+        setCustomers(data.customers);
+      }
+
+      addAuditLogInternal({
+        category: 'Customer',
+        action: 'CUSTOMER_REGISTERED',
+        details: `Batch imported ${normalizedCustomers.length} customers from legacy system. Updated: ${data.updated || 0}, New: ${data.inserted || 0}.`,
+        severity: 'SUCCESS',
+      });
+
+      return { success: true, count: data.count || normalizedCustomers.length };
+    } catch (err: any) {
+      console.error('bulkAddCustomers error:', err);
+      return { success: false, count: 0, error: err.message };
+    }
+  };
+
+  const bulkAddSuppliers = async (suppliersData: Partial<Supplier>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!suppliersData.length) return { success: true, count: 0 };
+
+    const normalizedSuppliers: Supplier[] = suppliersData.map(s => {
+      const id = s.supplier_id || getNextSupplierId();
+      return {
+        supplier_id: id,
+        supplier_name: s.supplier_name || 'Legacy Vendor',
+        contact_person: s.contact_person || 'General Contact',
+        phone_number: s.phone_number || '',
+        email: s.email || '',
+        address: s.address || '',
+        products_supplied: Array.isArray(s.products_supplied) ? s.products_supplied : [],
+        lead_time_days: Number(s.lead_time_days) || 3,
+        payment_terms: s.payment_terms || 'Cash on Delivery',
+        average_unit_cost: Number(s.average_unit_cost) || 0,
+        reliability_rating: Number(s.reliability_rating) || 4,
+        status: s.status || 'Active',
+      };
+    });
+
+    try {
+      const res = await fetch('/api/suppliers/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suppliers: normalizedSuppliers, updateExisting }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Bulk supplier upload failed');
+      }
+
+      if (Array.isArray(data.suppliers)) {
+        setSuppliers(data.suppliers);
+      }
+
+      addAuditLogInternal({
+        category: 'Purchasing',
+        action: 'SUPPLIER_CREATED',
+        details: `Batch imported ${normalizedSuppliers.length} suppliers from legacy system. Updated: ${data.updated || 0}, New: ${data.inserted || 0}.`,
+        severity: 'SUCCESS',
+      });
+
+      return { success: true, count: data.count || normalizedSuppliers.length };
+    } catch (err: any) {
+      console.error('bulkAddSuppliers error:', err);
+      return { success: false, count: 0, error: err.message };
+    }
+  };
+
+  const bulkAddPurchaseOrders = async (
+    ordersData: Partial<PurchaseOrder>[],
+    updateExisting: boolean = true,
+    updateInventory: boolean = false
+  ): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!ordersData.length) return { success: true, count: 0 };
+
+    const today = new Date().toISOString().split('T')[0];
+    const normalizedOrders: PurchaseOrder[] = ordersData.map((po, idx) => {
+      const po_id = po.po_id || `PO-HIST-${Date.now().toString().slice(-6)}-${idx + 1}`;
+      const items = Array.isArray(po.items) && po.items.length > 0 ? po.items : [{
+        item_sn: po.item_sn || 'ITEM-DEFAULT',
+        item_name: (po as any).item_name || 'General Inventory Item',
+        quantity_ordered: Number(po.quantity_ordered) || 1,
+        quantity_received: po.status === 'RECEIVED' ? (Number(po.quantity_ordered) || 1) : (Number(po.quantity_received) || 0),
+        unit_cost: Number(po.unit_cost) || 0,
+        total_cost: Number(po.total_cost) || 0,
+      }];
+
+      const totalCost = Number(po.total_cost) || items.reduce((sum, it) => sum + (Number(it.total_cost) || 0), 0);
+
+      return {
+        po_id,
+        supplier_id: po.supplier_id || 'SUP-00001',
+        items,
+        order_date: po.order_date || today,
+        expected_delivery_date: po.expected_delivery_date || today,
+        actual_delivery_date: po.actual_delivery_date || (po.status === 'RECEIVED' ? today : undefined),
+        status: po.status || 'RECEIVED',
+        notes: po.notes || 'Historical PO Migration',
+        receiving_history: po.receiving_history || [],
+        total_cost: totalCost,
+      };
+    });
+
+    try {
+      const res = await fetch('/api/purchase-orders/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchaseOrders: normalizedOrders, updateExisting, updateInventory }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Bulk purchase orders upload failed');
+      }
+
+      if (Array.isArray(data.purchaseOrders)) {
+        setPurchaseOrders(data.purchaseOrders);
+      }
+      if (updateInventory && Array.isArray(data.products)) {
+        setProducts(data.products);
+      }
+
+      addAuditLogInternal({
+        category: 'Purchasing',
+        action: 'PO_CREATED',
+        details: `Batch imported ${normalizedOrders.length} historical purchase orders (${updateInventory ? 'Inventory Stock Updated' : 'Ledger Only'}).`,
+        severity: 'SUCCESS',
+      });
+
+      return { success: true, count: data.count || normalizedOrders.length };
+    } catch (err: any) {
+      console.error('bulkAddPurchaseOrders error:', err);
+      return { success: false, count: 0, error: err.message };
+    }
+  };
+
   const updateProduct = (item_sn: string, updates: Partial<Product>) => {
     let updatedProd: Product | null = null;
     setProducts(prev =>
@@ -5296,6 +5484,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         performStockTransfer,
         addProduct,
         bulkAddProducts,
+        bulkAddCustomers,
+        bulkAddSuppliers,
+        bulkAddPurchaseOrders,
         updateProduct,
         deleteProduct,
         categories,

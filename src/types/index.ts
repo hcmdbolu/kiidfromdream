@@ -40,6 +40,7 @@ export type ProductStatus = 'Active' | 'Inactive';
 export interface Product {
   item_sn: string; // e.g. ITEM-00045
   item_name: string; // e.g. Product Name
+  barcode?: string; // Optional UPC, EAN-13, Code-128 or manufacturer barcode
   item_picture: string;
   quantity: number; // Current stock in BASE UNITS (e.g. 400 sachets)
   expiry_date: string; // YYYY-MM-DD

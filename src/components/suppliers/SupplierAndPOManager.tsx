@@ -27,9 +27,12 @@ import {
   RotateCcw,
   ArrowRight,
   AlertTriangle,
-  FileText
+  FileText,
+  Upload
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
+import { SupplierBulkImportModal } from './SupplierBulkImportModal';
+import { PurchaseOrderBulkImportModal } from './PurchaseOrderBulkImportModal';
 
 interface SupplierAndPOManagerProps {
   initialTab?: 'suppliers' | 'orders';
@@ -74,6 +77,8 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
   const canManageSuppliers = hasPermission('CAN_MANAGE_SUPPLIERS');
 
   const [activeSubTab, setActiveSubTab] = useState<'orders' | 'suppliers'>(initialTab);
+  const [isSupplierBulkOpen, setIsSupplierBulkOpen] = useState(false);
+  const [isPoBulkOpen, setIsPoBulkOpen] = useState(false);
 
   // Security PIN override modal state
   const [overrideContext, setOverrideContext] = useState<{
@@ -631,23 +636,47 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
         {/* Global Action Buttons */}
         <div className="flex items-center space-x-2">
           {activeSubTab === 'orders' ? (
-            <button
-              onClick={handleRequestCreatePo}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center space-x-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create Purchase Order</span>
-              {!canCreatePo && <Lock className="w-3 h-3 ml-1 text-emerald-200" />}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setIsPoBulkOpen(true)}
+                className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 rounded-lg font-bold text-xs shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+                title="Bulk import historical vendor invoices and past purchase orders"
+              >
+                <Upload className="w-4 h-4 text-indigo-600" />
+                <span>Import Historical POs</span>
+              </button>
+
+              <button
+                onClick={handleRequestCreatePo}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center space-x-1.5 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Purchase Order</span>
+                {!canCreatePo && <Lock className="w-3 h-3 ml-1 text-emerald-200" />}
+              </button>
+            </>
           ) : (
-            <button
-              onClick={handleRequestAddSupplier}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center space-x-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Register Supplier</span>
-              {!canManageSuppliers && <Lock className="w-3 h-3 ml-1 text-emerald-200" />}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setIsSupplierBulkOpen(true)}
+                className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 rounded-lg font-bold text-xs shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer"
+                title="Batch import suppliers and vendor directories via CSV"
+              >
+                <Upload className="w-4 h-4 text-indigo-600" />
+                <span>Batch Import Suppliers</span>
+              </button>
+
+              <button
+                onClick={handleRequestAddSupplier}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs shadow-sm flex items-center space-x-1.5 transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Register Supplier</span>
+                {!canManageSuppliers && <Lock className="w-3 h-3 ml-1 text-emerald-200" />}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -2237,6 +2266,16 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
           setOverrideContext(prev => ({ ...prev, isOpen: false }));
           action();
         }}
+      />
+      {/* Bulk Supplier & Purchase Order Import Modals */}
+      <SupplierBulkImportModal
+        isOpen={isSupplierBulkOpen}
+        onClose={() => setIsSupplierBulkOpen(false)}
+      />
+
+      <PurchaseOrderBulkImportModal
+        isOpen={isPoBulkOpen}
+        onClose={() => setIsPoBulkOpen(false)}
       />
     </div>
   );
