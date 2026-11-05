@@ -1,5 +1,5 @@
 /**
- * Robust Date Utilities for KIID FROM DREAM POS
+ * Robust Date Utilities for SmartSales POS
  * Standardizes date extraction, local formatting, and range matching across
  * sales, refunds, drawers, transfers, and executive reports.
  */

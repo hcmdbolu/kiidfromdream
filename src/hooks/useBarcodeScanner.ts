@@ -23,7 +23,7 @@ export interface UseBarcodeScannerOptions {
 export function useBarcodeScanner({
   onScan,
   minChars = 3,
-  maxIntervalMs = 50,
+  maxIntervalMs = 80,
   enabled = true,
   allowInInputs = false,
   listenToHardware = true,
@@ -138,7 +138,7 @@ export function useBarcodeScanner({
         }
 
         // If subsequent character arrives at scanner speed
-        if (interval > 0 && interval <= maxIntervalMs) {
+        if (interval >= 0 && interval <= maxIntervalMs) {
           // This is a rapid scanner burst into an input field!
           setIsCapturingBurst(true);
           bufferRef.current.push(e.key);

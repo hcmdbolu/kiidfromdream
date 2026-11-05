@@ -1,8 +1,8 @@
 {
-  "name": "kiidfromdream-pos",
+  "name": "smartsales-pos",
   "private": true,
-  "version": "2.7.0",
-  "description": "KIID FROM DREAM POS & Inventory System",
+  "version": "3.0.0",
+  "description": "SmartSales POS & Inventory System",
   "author": "Alex Abiri",
   "type": "module",
   "main": "electron/main.cjs",

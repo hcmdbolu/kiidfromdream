@@ -13,12 +13,12 @@ export interface DatabaseMetadata {
 
 export const DEFAULT_RECEIPT_CONFIG = {
   id: 'DEFAULT_RECEIPT_CONFIG',
-  business_name: 'KIID FROM DREAM LTD',
+  business_name: 'SMARTSALES LTD',
   tagline: 'Retail & Inventory Management System',
   address_line1: 'Commercial Avenue, Phase 1',
   address_line2: 'Lagos, Nigeria',
   phone_numbers: '+234 800 000 0000',
-  email: 'contact@kiidfromdream.com',
+  email: 'contact@smartsales.com',
   tax_or_cac_number: 'RC: 1984201 | TIN: 248109-0001',
   footer_thank_you: 'Thank you for shopping with us!',
   footer_policy_notice: 'Goods received in good condition. Inspect items before checkout. Return policy: 7 days with valid receipt.',
@@ -35,7 +35,7 @@ export const DEFAULT_RECEIPT_CONFIG = {
 
 export const DEFAULT_DISCOUNT_SECURITY_CONFIG = {
   id: 'DISCOUNT_SECURITY_CONFIG',
-  discount_pin: '8e889b7fae446d1b:5b5ff5f0376cf749ca232938a7c2aa5b64c1daff1fa5117f7b3a7a935fa7c06b', // Salted SHA-256 for 8888
+  discount_pin: '8e889b7fae446d1b:0d9bebb9f3a3469d4186b3e1b20b325d3651a98bf1c3ffb69000bec8cdefa73c', // Salted SHA-256 for 8888
   is_configured: true,
   stacking_policy: 'BEST_DISCOUNT',
   max_discount_percent_cap: 25,
@@ -136,7 +136,7 @@ export class PosDatabase {
   constructor(dataDir?: string) {
     const defaultDataDir = process.env.POS_DATA_DIR || (
       process.env.APPDATA
-        ? path.resolve(process.env.APPDATA, 'kiidfromdream-pos', 'data')
+        ? path.resolve(process.env.APPDATA, 'smartsales-pos', 'data')
         : path.resolve(process.cwd(), 'data')
     );
     const resolvedDataDir = dataDir || defaultDataDir;
@@ -186,6 +186,7 @@ export class PosDatabase {
       this.safeAddColumn('products', 'bulk_selling_price', 'REAL');
       this.safeAddColumn('products', 'bulk_item_cost', 'REAL');
       this.safeAddColumn('products', 'allow_loose_sales', 'INTEGER DEFAULT 1');
+      this.safeAddColumn('products', 'barcode', 'TEXT');
 
       // 2. Sales table migrations
       this.safeAddColumn('sales', 'invoice_number', 'TEXT');
@@ -249,6 +250,31 @@ export class PosDatabase {
       this.safeAddColumn('purchase_orders', 'expected_delivery_date', 'TEXT');
       this.safeAddColumn('purchase_orders', 'actual_delivery_date', 'TEXT');
       this.safeAddColumn('purchase_orders', 'notes', 'TEXT');
+
+      // 9. Automated SmartSales v3.0 rebranding & credentials sync
+      try {
+        const rc = this.db.prepare("SELECT data FROM receipt_settings WHERE id = 'DEFAULT_RECEIPT_CONFIG'").get();
+        if (rc && typeof rc.data === 'string' && rc.data.includes('KIID')) {
+          let updatedRc = rc.data
+            .replace(/KIID FROM DREAM LTD/gi, 'SMARTSALES LTD')
+            .replace(/KIID FROM DREAM/gi, 'SMARTSALES')
+            .replace(/kiidfromdream/gi, 'smartsales');
+          this.db.prepare("UPDATE receipt_settings SET data = ? WHERE id = 'DEFAULT_RECEIPT_CONFIG'").run(updatedRc);
+          console.log('[SQLITE] Automatically migrated receipt settings to SMARTSALES LTD');
+        }
+
+        // Migrate Super Admin Boluwatife to new hash if on old hash
+        const oldSuperHash = 'aabfb72998e702ac:1704901f463374828109bf14aeb1fbaec12e17621c1f1ec749f1dbf77c38ea67';
+        const newSuperHash = 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028';
+        const emp = this.db.prepare("SELECT staff_id, pin, data FROM employees WHERE LOWER(username) = 'boluwatife'").get();
+        if (emp && (emp.pin === oldSuperHash || (typeof emp.data === 'string' && emp.data.includes(oldSuperHash)))) {
+          let updatedData = typeof emp.data === 'string' ? emp.data.replaceAll(oldSuperHash, newSuperHash) : emp.data;
+          this.db.prepare("UPDATE employees SET pin = ?, data = ? WHERE staff_id = ?").run(newSuperHash, updatedData, emp.staff_id);
+          console.log('[SQLITE] Migrated Super Admin Boluwatife credentials to SmartSales format');
+        }
+      } catch (e: any) {
+        console.warn('[SQLITE] Non-fatal notice during v3.0 rebranding auto-sync:', e.message);
+      }
 
       console.log('[SQLITE] Automated schema migrations completed successfully.');
     } catch (err: any) {
@@ -609,10 +635,10 @@ export class PosDatabase {
         staff_id: 'STAFF-SUPER-001',
         staff_name: 'Boluwatife (Super Admin)',
         username: 'Boluwatife',
-        password: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+        password: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
         phone_number: '+234 800 000 0001',
         role: 'Super Admin',
-        pin: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+        pin: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
         shift_time: 'Full Day',
         date_hired: '2023-01-01',
         status: 'Active',
@@ -746,10 +772,10 @@ export class PosDatabase {
       staff_id: 'STAFF-SUPER-001',
       staff_name: 'Boluwatife (Super Admin)',
       username: 'Boluwatife',
-      password: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+      password: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
       phone_number: '+234 800 000 0001',
       role: 'Super Admin',
-      pin: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+      pin: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
       shift_time: 'Full Day',
       date_hired: '2023-01-01',
       status: 'Active',

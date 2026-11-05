@@ -230,7 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div 
               onClick={() => handleSelectTab('pos')}
               className={`flex items-center space-x-3 cursor-pointer group select-none min-w-0 ${isHidden ? 'justify-center' : ''}`}
-              title="KIIDFROMDREAM POS"
+              title="SMARTSALES POS"
             >
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform shrink-0">
                 <Store className="w-6 h-6 stroke-[2.5]" />
@@ -239,7 +239,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="min-w-0">
                   <div className="flex items-center space-x-1.5">
                     <span className="text-sm font-black tracking-tight text-white font-mono truncate">
-                      KIIDFROMDREAM
+                      SMARTSALES
                     </span>
                     <span className="px-1.5 py-0.2 text-[9px] uppercase font-bold tracking-wider rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shrink-0">
                       POS

@@ -120,7 +120,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   }, []);
 
   const meta = TAB_TITLES[currentTab] || {
-    title: 'KiidFromDream POS',
+    title: 'SmartSales POS',
     subtitle: 'Retail Counter & Point of Sale Management',
   };
 

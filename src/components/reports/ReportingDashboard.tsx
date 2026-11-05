@@ -2778,7 +2778,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       {/* Printable End-Of-Day Report Sheet (Official Audit Copy) */}
       <div id="printable-daily-report" className="bg-slate-50 p-6 rounded-2xl border border-slate-300 font-mono text-xs space-y-4 text-slate-900">
         <div className="border-b-2 border-slate-900 pb-3 text-center">
-          <h2 className="text-base font-black tracking-wider uppercase">KIIDFROMDREAM SALES - AUDIT & RECONCILIATION REPORT</h2>
+          <h2 className="text-base font-black tracking-wider uppercase">SMARTSALES - AUDIT & RECONCILIATION REPORT</h2>
           <p className="text-[11px] text-slate-600">Generated: {dateRangeLabel} • Official Audit Copy</p>
         </div>
 
@@ -2874,7 +2874,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
 
         <div className="pt-2 border-t border-slate-200 text-[10px] text-slate-500 flex justify-between">
           <span>Report verified by Shift Supervisor & Management</span>
-          <span>KIIDFROMDREAM POS • All Rights Reserved</span>
+          <span>SMARTSALES POS • All Rights Reserved</span>
         </div>
       </div>
 

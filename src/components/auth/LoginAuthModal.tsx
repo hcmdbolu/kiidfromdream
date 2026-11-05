@@ -70,7 +70,7 @@ export const LoginAuthModal: React.FC<LoginAuthModalProps> = ({
       setIsLoading(false);
       setOverrideLockScreen(false);
 
-      const savedUser = localStorage.getItem('kiidfromdream_saved_username');
+      const savedUser = localStorage.getItem('smartsales_saved_username');
       if (savedUser) {
         setUsername(savedUser);
         setRememberMe(true);
@@ -139,9 +139,9 @@ export const LoginAuthModal: React.FC<LoginAuthModalProps> = ({
     setIsLoading(true);
 
     if (rememberMe) {
-      localStorage.setItem('kiidfromdream_saved_username', cleanUser);
+      localStorage.setItem('smartsales_saved_username', cleanUser);
     } else {
-      localStorage.removeItem('kiidfromdream_saved_username');
+      localStorage.removeItem('smartsales_saved_username');
     }
 
     const res = await login(cleanUser, cleanPass);
@@ -256,7 +256,7 @@ export const LoginAuthModal: React.FC<LoginAuthModalProps> = ({
 
   const isStandalone = !isAuthenticated || mode === 'LOGIN';
   const isLockScreen = mode === 'LOCK' && !overrideLockScreen;
-  const storeName = receiptSettings?.business_name || 'KIID FROM DREAM LTD';
+  const storeName = receiptSettings?.business_name || 'SMARTSALES LTD';
   const storeLogo = receiptSettings?.show_logo ? receiptSettings?.logo_base64 : null;
 
   return (

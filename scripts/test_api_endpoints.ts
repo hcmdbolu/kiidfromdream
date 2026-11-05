@@ -126,14 +126,14 @@ async function run() {
     {
       settings: {
         id: 'DEFAULT_RECEIPT_CONFIG',
-        business_name: 'KIID FROM DREAM LTD',
+        business_name: 'SMARTSALES LTD',
         tagline: 'Premium Cold Room & Seafood Terminal (Audit Verified)',
         address_line1: 'Shop 14, Lekki Fish Market Phase 1',
         address_line2: 'Lekki-Epe Expressway, Lagos, Nigeria',
         phone_numbers: '+234 803 123 4567 / 0800-FISH-POS',
-        email: 'sales@kiidfromdream.com',
+        email: 'sales@smartsales.com',
         tax_or_cac_number: 'RC: 1984201 | TIN: 248109-0001',
-        footer_thank_you: 'Thank you for choosing KIID FROM DREAM!',
+        footer_thank_you: 'Thank you for choosing SMARTSALES!',
         footer_policy_notice: 'Fresh fish guaranteed. Inspect fish before cold-chain handover. No returns on thawed frozen goods.',
         custom_notes: 'Tested and verified by Enterprise Audit Suite.',
         logo_base64: null,

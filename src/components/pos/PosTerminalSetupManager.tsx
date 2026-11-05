@@ -76,7 +76,7 @@ export const PosTerminalSetupManager: React.FC = () => {
   const [formType, setFormType] = useState<PosAccountType>('POS_TERMINAL');
   const [formProvider, setFormProvider] = useState<PosProvider>('Moniepoint');
   const [formTerminalId, setFormTerminalId] = useState('');
-  const [formAccountName, setFormAccountName] = useState('Kiid From Dream Frozen Foods Ltd');
+  const [formAccountName, setFormAccountName] = useState('SmartSales Enterprises Ltd');
   const [formAccountNumber, setFormAccountNumber] = useState('');
   const [formBankName, setFormBankName] = useState('Moniepoint Microfinance Bank');
   const [formLocation, setFormLocation] = useState('Main Retail Counter');
@@ -133,7 +133,7 @@ export const PosTerminalSetupManager: React.FC = () => {
     setFormType('POS_TERMINAL');
     setFormProvider('Moniepoint');
     setFormTerminalId(`MP-${Math.floor(100000 + Math.random() * 900000)}`);
-    setFormAccountName('Kiid From Dream Frozen Foods Ltd');
+    setFormAccountName('SmartSales Enterprises Ltd');
     setFormAccountNumber('');
     setFormBankName('Moniepoint Microfinance Bank');
     setFormLocation('Main Retail Counter 1');
@@ -652,7 +652,7 @@ export const PosTerminalSetupManager: React.FC = () => {
                   type="text"
                   value={formAccountName}
                   onChange={(e) => setFormAccountName(e.target.value)}
-                  placeholder="e.g. Kiid From Dream Seafoods Ltd"
+                  placeholder="e.g. SMARTSALES ENTERPRISES LTD"
                   className="w-full py-2 px-3 bg-white border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 />
               </div>

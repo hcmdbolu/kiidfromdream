@@ -109,7 +109,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'KIID FROM DREAM - POS & Inventory System',
+    title: 'SMARTSALES - POS & Inventory System',
     backgroundColor: '#0f172a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -226,7 +226,7 @@ ipcMain.handle('save-backup-file', async (event, { filename, content }) => {
   try {
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
       title: 'Save POS Database Backup',
-      defaultPath: filename || `kiidfromdream_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: filename || `smartsales_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
       filters: [{ name: 'JSON Backup (*.json)', extensions: ['json'] }],
     });
     if (canceled || !filePath) {

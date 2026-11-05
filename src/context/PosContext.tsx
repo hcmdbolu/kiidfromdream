@@ -392,29 +392,29 @@ interface PosContextType {
 const PosContext = createContext<PosContextType | undefined>(undefined);
 
 const STORAGE_KEYS = {
-  PRODUCTS: 'kiidfromdream_products_v2',
-  CUSTOMERS: 'kiidfromdream_customers_v2',
-  SUPPLIERS: 'kiidfromdream_suppliers_v2',
-  EMPLOYEES: 'kiidfromdream_employees_v2',
-  PURCHASE_ORDERS: 'kiidfromdream_pos_v2',
-  SALES: 'kiidfromdream_sales_v2',
-  REFUNDS: 'kiidfromdream_refunds_v2',
-  AUDIT_LOG: 'kiidfromdream_audit_log_v2',
-  CYCLE_COUNTS: 'kiidfromdream_cycle_counts_v2',
-  STOCK_TRANSFERS: 'kiidfromdream_stock_transfers_v2',
-  STAFF_ID: 'kiidfromdream_active_staff_id_v2',
-  AUTH_SESSION: 'kiidfromdream_auth_session_v2',
-  AUTH_TOKEN: 'kiidfromdream_auth_token_v2',
-  PARKED_ORDERS: 'kiidfromdream_parked_orders_v2',
-  VOIDED_ORDERS: 'kiidfromdream_voided_orders_v2',
-  ACTIVE_ORDERS: 'kiidfromdream_active_orders_v2',
-  POS_TERMINALS: 'kiidfromdream_pos_terminals_v2',
-  CASH_TRANSFERS: 'kiidfromdream_cash_transfers_v2',
-  CUSTOMER_DEBT_REPAYMENTS: 'kiidfromdream_debt_repayments_v2',
-  RECEIPT_SETTINGS: 'kiidfromdream_receipt_settings_v2',
-  DISCOUNT_SECURITY: 'kiidfromdream_discount_security_v2',
-  DISCOUNT_RULES: 'kiidfromdream_discount_rules_v2',
-  CATEGORIES: 'kiidfromdream_categories_v2',
+  PRODUCTS: 'smartsales_products_v2',
+  CUSTOMERS: 'smartsales_customers_v2',
+  SUPPLIERS: 'smartsales_suppliers_v2',
+  EMPLOYEES: 'smartsales_employees_v2',
+  PURCHASE_ORDERS: 'smartsales_pos_v2',
+  SALES: 'smartsales_sales_v2',
+  REFUNDS: 'smartsales_refunds_v2',
+  AUDIT_LOG: 'smartsales_audit_log_v2',
+  CYCLE_COUNTS: 'smartsales_cycle_counts_v2',
+  STOCK_TRANSFERS: 'smartsales_stock_transfers_v2',
+  STAFF_ID: 'smartsales_active_staff_id_v2',
+  AUTH_SESSION: 'smartsales_auth_session_v2',
+  AUTH_TOKEN: 'smartsales_auth_token_v2',
+  PARKED_ORDERS: 'smartsales_parked_orders_v2',
+  VOIDED_ORDERS: 'smartsales_voided_orders_v2',
+  ACTIVE_ORDERS: 'smartsales_active_orders_v2',
+  POS_TERMINALS: 'smartsales_pos_terminals_v2',
+  CASH_TRANSFERS: 'smartsales_cash_transfers_v2',
+  CUSTOMER_DEBT_REPAYMENTS: 'smartsales_debt_repayments_v2',
+  RECEIPT_SETTINGS: 'smartsales_receipt_settings_v2',
+  DISCOUNT_SECURITY: 'smartsales_discount_security_v2',
+  DISCOUNT_RULES: 'smartsales_discount_rules_v2',
+  CATEGORIES: 'smartsales_categories_v2',
 };
 
 export function normalizeParkedOrder(po: any): ParkedOrder {
@@ -3132,7 +3132,7 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       posTerminals[0];
 
     const destBankName = destinationAcc?.bank_name || 'Guaranty Trust Bank';
-    const destAccName = destinationAcc?.account_name || 'Kiid From Dream Enterprises';
+    const destAccName = destinationAcc?.account_name || 'SmartSales Enterprises';
     const destAccNumber = destinationAcc?.account_number || '0123456789';
 
     const transferId = `${isBankToPos ? 'FLOAT-IN' : 'CASH-TRF'}-${Date.now().toString().slice(-8)}`;
@@ -4985,9 +4985,9 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const exportBackupData = async (): Promise<{ success: boolean; filePath?: string; filename?: string; error?: string }> => {
     try {
-      const filename = `kiidfromdream_pos_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      const filename = `smartsales_pos_backup_${new Date().toISOString().slice(0, 10)}.json`;
       const data = {
-        system: 'KIIDFROMDREAM POS & INVENTORY',
+        system: 'SMARTSALES POS & INVENTORY',
         version: Date.now(),
         export_date: new Date().toISOString(),
         exported_by: {
@@ -5219,10 +5219,10 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           staff_id: 'STAFF-SUPER-001',
           staff_name: 'Boluwatife (Super Admin)',
           username: 'Boluwatife',
-          password: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+          password: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
           phone_number: '+234 800 000 0001',
           role: 'Super Admin' as UserRole,
-          pin: 'aabfb72998e702ac:1704901aa0047e7ff4d59da5fe8102a113ffa9108698d134dc6e8b7349a262ec',
+          pin: 'aabfb72998e702ac:e480ff0dbb66e394cd9be2a31b3bc3e358d92305f6ab2614c3c26abc04258028',
           shift_time: 'Full Day' as const,
           date_hired: '2023-01-01',
           status: 'Active' as const,

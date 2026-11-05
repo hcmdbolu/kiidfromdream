@@ -63,7 +63,7 @@ function assertEqual(actual: any, expected: any, message: string) {
 
 async function runAudit() {
   console.log('\n=============================================================');
-  console.log('  KIID FROM DREAM POS - COMPREHENSIVE END-TO-END AUDIT SUITE');
+  console.log('  SmartSales POS - COMPREHENSIVE END-TO-END AUDIT SUITE');
   console.log('=============================================================\n');
 
   const db = new PosDatabase(DATA_DIR);

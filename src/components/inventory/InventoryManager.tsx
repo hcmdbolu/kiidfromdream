@@ -19,12 +19,14 @@ import {
   Shield,
   Upload,
   FileSpreadsheet,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Barcode
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { CycleCountModal } from './CycleCountModal';
 import { BulkImportModal } from './BulkImportModal';
 import { CategoryManagementModal } from './CategoryManagementModal';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 
 const RETAIL_CATEGORIES: ProductCategory[] = [
   'General',
@@ -533,7 +535,15 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
                                 </span>
                               )}
                             </div>
-                            <div className="font-mono text-[10px] text-slate-500 font-semibold">{product.item_sn}</div>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="font-mono text-[10px] text-slate-500 font-semibold">{product.item_sn}</span>
+                                {product.barcode && (
+                                  <span className="inline-flex items-center gap-1 font-mono text-[9px] text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                                    <Barcode className="w-3 h-3 text-indigo-500" />
+                                    {product.barcode}
+                                  </span>
+                                )}
+                              </div>
                           </div>
                         </div>
                       </td>

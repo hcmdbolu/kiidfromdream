@@ -1244,7 +1244,7 @@ export const CashReconciliationManager: React.FC<CashReconciliationManagerProps>
               {/* Header */}
               <div className="text-center border-b border-dashed border-slate-300 pb-3 space-y-1">
                 <div className="font-black text-base text-slate-950 tracking-tight">
-                  KIID FROM DREAM SEAFOODS LTD
+                  SMARTSALES ENTERPRISES LTD
                 </div>
                 <div className="text-[10px] text-slate-500 uppercase font-bold">
                   {selectedVoucher.transfer_type === 'BANK_TO_POS'

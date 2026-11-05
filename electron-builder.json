@@ -1,6 +1,6 @@
 {
-  "appId": "com.kiidfromdream.pos",
-  "productName": "KIID FROM DREAM POS",
+  "appId": "com.smartsales.pos",
+  "productName": "SmartSales POS",
   "directories": {
     "output": "release"
   },
@@ -38,6 +38,6 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "deleteAppDataOnUninstall": false,
-    "shortcutName": "KIID FROM DREAM POS"
+    "shortcutName": "SmartSales POS"
   }
 }

@@ -78,7 +78,7 @@ export const RefundVoucherModal: React.FC<RefundVoucherModalProps> = ({ refund, 
               </div>
             )}
             <h2 className="text-base font-extrabold tracking-wider text-slate-950 uppercase">
-              {receiptSettings.business_name || 'KIID FROM DREAM LTD'}
+              {receiptSettings.business_name || 'SMARTSALES LTD'}
             </h2>
             {receiptSettings.tagline && (
               <p className="text-[10px] text-slate-600 uppercase font-semibold">

@@ -2,7 +2,7 @@ const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
-const appDataDbPath = path.join(process.env.APPDATA, 'kiidfromdream-pos', 'data', 'pos_database.db');
+const appDataDbPath = path.join(process.env.APPDATA, 'smartsales-pos', 'data', 'pos_database.db');
 console.log('Inspecting DB at:', appDataDbPath);
 
 if (!fs.existsSync(appDataDbPath)) {

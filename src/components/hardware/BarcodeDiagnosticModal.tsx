@@ -426,7 +426,7 @@ export const BarcodeDiagnosticModal: React.FC<BarcodeDiagnosticModalProps> = ({ 
         {/* Footer */}
         <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            KIID FROM DREAM POS Hardware Diagnostics Suite
+            SmartSales POS Hardware Diagnostics Suite
           </span>
           <button
             type="button"

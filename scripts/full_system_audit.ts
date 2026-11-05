@@ -71,7 +71,7 @@ function assertEqual(actual: any, expected: any, message: string) {
 
 async function runComprehensiveAudit() {
   console.log('\n================================================================');
-  console.log('  KIID FROM DREAM POS - COMPREHENSIVE END-TO-END SYSTEM AUDIT');
+  console.log('  SmartSales POS - COMPREHENSIVE END-TO-END SYSTEM AUDIT');
   console.log('================================================================\n');
 
   // Create an isolated sandbox directory for the test run so live production data is untouched
@@ -570,7 +570,7 @@ async function runComprehensiveAudit() {
       type: 'POS_TERMINAL',
       provider: 'Moniepoint',
       terminal_id: 'MP-882019',
-      account_name: 'Kiid From Dream Enterprises',
+      account_name: 'SmartSales Enterprises',
       account_number: '8031112233',
       bank_name: 'Moniepoint MFB',
       status: 'Active',
@@ -597,7 +597,7 @@ async function runComprehensiveAudit() {
       cashier_cash_before: 58000,
       cashier_cash_remaining: 8000,
       destination_bank_name: 'Moniepoint MFB',
-      destination_account_name: 'Kiid From Dream Enterprises',
+      destination_account_name: 'SmartSales Enterprises',
       destination_account_number: '8031112233',
       deposit_slip_number: 'DEP-884920',
       notes: 'Midday cash drop to bank',
@@ -831,7 +831,7 @@ async function runComprehensiveAudit() {
       cashier_cash_before: 50000,
       cashier_cash_remaining: 10000,
       destination_bank_name: 'Access Bank',
-      destination_account_name: 'Kiid From Dream Ltd',
+      destination_account_name: 'SmartSales Ltd',
       destination_account_number: '0123456789',
       deposit_slip_number: 'SLIP-9901',
       notes: 'End of shift bank deposit',
@@ -860,7 +860,7 @@ async function runComprehensiveAudit() {
       cashier_cash_before: 5000,
       cashier_cash_remaining: 30000,
       destination_bank_name: 'Access Bank',
-      destination_account_name: 'Kiid From Dream Ltd',
+      destination_account_name: 'SmartSales Ltd',
       destination_account_number: '0123456789',
       notes: 'Morning float cash injection',
       status: 'COMPLETED',

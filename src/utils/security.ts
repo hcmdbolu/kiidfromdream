@@ -122,7 +122,7 @@ export function generateSalt(): string {
 export function hashPin(pin: string, existingSalt?: string): string {
   const salt = existingSalt || generateSalt();
   const cleanPin = pin.trim();
-  const hash = sha256(`${salt}_KIID_POS_${cleanPin}`);
+  const hash = sha256(`${salt}_SMARTSALES_POS_${cleanPin}`);
   return `${salt}:${hash}`;
 }
 
@@ -149,8 +149,10 @@ export function verifyPin(enteredPin: string, storedValue: string): boolean {
 
   if (isHashedPin(cleanStored)) {
     const [salt, expectedHash] = cleanStored.split(':');
-    const computed = sha256(`${salt}_KIID_POS_${cleanEntered}`);
-    return timingSafeEqual(computed, expectedHash);
+    const computed = sha256(`${salt}_SMARTSALES_POS_${cleanEntered}`);
+    if (timingSafeEqual(computed, expectedHash)) return true;
+    const legacyComputed = sha256(`${salt}_KIID_POS_${cleanEntered}`);
+    return timingSafeEqual(legacyComputed, expectedHash);
   }
 
   // Legacy plaintext fallback check
@@ -159,7 +161,7 @@ export function verifyPin(enteredPin: string, storedValue: string): boolean {
 
 const SECRET_APP_KEY = (typeof process !== 'undefined' && process.env && process.env.SESSION_SECRET) 
   ? process.env.SESSION_SECRET 
-  : 'KIID_FROM_DREAM_COLD_ROOM_2026_SECRET';
+  : 'SMARTSALES_POS_ENTERPRISE_2026_SECRET';
 
 /**
  * Generates a signed bearer session token for authenticated API requests

@@ -2309,7 +2309,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
             }
           `}</style>
           <div className="max-w-[320px] mx-auto text-center space-y-2 pb-4 border-b border-black">
-            <h1 className="font-bold text-base uppercase">{receiptSettings.business_name || 'KIID FROM DREAM'}</h1>
+            <h1 className="font-bold text-base uppercase">{receiptSettings.business_name || 'SMARTSALES'}</h1>
             <p className="text-[10px]">{receiptSettings.address_line1}</p>
             <p className="text-[10px]">Tel: {receiptSettings.phone_numbers}</p>
             <div className="border-t border-b border-dashed border-black py-1 my-2 font-bold text-xs uppercase">
@@ -2443,7 +2443,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                 <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-black text-slate-900 uppercase tracking-tight">
-                      {receiptSettings.business_name || 'KIID FROM DREAM LTD'}
+                      {receiptSettings.business_name || 'SMARTSALES LTD'}
                     </h2>
                     {receiptSettings.tagline && (
                       <p className="text-xs text-slate-500 italic">{receiptSettings.tagline}</p>
@@ -2616,7 +2616,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
                     <div className="border-b border-slate-300 pb-1 w-3/4 mx-auto text-[11px] text-slate-500">
                       Authorized Signatory & Stamp
                     </div>
-                    <div className="font-bold text-xs text-slate-800">{receiptSettings.business_name || 'KIID FROM DREAM'}</div>
+                    <div className="font-bold text-xs text-slate-800">{receiptSettings.business_name || 'SMARTSALES'}</div>
                   </div>
                   <div className="text-center space-y-3">
                     <div className="border-b border-slate-300 pb-1 w-3/4 mx-auto text-[11px] text-slate-500">
@@ -2694,7 +2694,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
             {/* Header */}
             <div className="border-b-2 border-black pb-4 mb-4 flex justify-between items-start">
               <div>
-                <h1 className="text-xl font-bold uppercase">{receiptSettings.business_name || 'KIID FROM DREAM LTD'}</h1>
+                <h1 className="text-xl font-bold uppercase">{receiptSettings.business_name || 'SMARTSALES LTD'}</h1>
                 {receiptSettings.tagline && <p className="text-xs italic">{receiptSettings.tagline}</p>}
                 {receiptSettings.address_line1 && <p className="text-xs">{receiptSettings.address_line1}</p>}
                 {receiptSettings.phone_numbers && <p className="text-xs">Tel: {receiptSettings.phone_numbers}</p>}
@@ -2780,7 +2780,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
             <div className="grid grid-cols-2 gap-8 pt-6 mt-6 border-t border-black">
               <div className="text-center space-y-2">
                 <div className="border-b border-black pb-1 w-3/4 mx-auto text-[10px]">Authorized Signature & Stamp</div>
-                <div className="font-bold">{receiptSettings.business_name || 'KIID FROM DREAM'}</div>
+                <div className="font-bold">{receiptSettings.business_name || 'SMARTSALES'}</div>
               </div>
               <div className="text-center space-y-2">
                 <div className="border-b border-black pb-1 w-3/4 mx-auto text-[10px]">Customer Signature & Date</div>

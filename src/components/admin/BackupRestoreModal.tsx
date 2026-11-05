@@ -105,7 +105,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
       const result = await exportBackupData();
       if (result.success) {
         setExportSuccess({
-          filename: result.filename || `kiidfromdream_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
+          filename: result.filename || `smartsales_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
           filePath: result.filePath,
         });
       } else {
@@ -147,7 +147,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
       const preview: BackupPreviewInfo = {
         filename,
         fileSize: fileSizeStr,
-        system: parsed.system || 'KIIDFROMDREAM POS',
+        system: parsed.system || 'SMARTSALES POS',
         exportDate: parsed.export_date ? new Date(parsed.export_date).toLocaleString() : undefined,
         exportedBy: parsed.exported_by?.staff_name ? `${parsed.exported_by.staff_name} (${parsed.exported_by.role || 'Staff'})` : undefined,
         productsCount: Array.isArray(parsed.products) ? parsed.products.length : 0,
@@ -751,7 +751,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
         {/* Modal Footer */}
         <div className="bg-slate-950/70 px-6 py-3.5 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500 shrink-0">
           <div>
-            KIID FROM DREAM POS · Centralized SQLite Engine v2
+            SmartSales POS · Centralized SQLite Engine v2
           </div>
           <div>
             Signed-in Operator: <span className="text-slate-300 font-semibold">{activeStaff.staff_name}</span>

@@ -545,7 +545,7 @@ export const LegacyDataMigrationModal: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="font-bold text-sm text-slate-900">Map File Headers to KIIDFROMDREAM Fields</h4>
+                  <h4 className="font-bold text-sm text-slate-900">Map File Headers to SMARTSALES Fields</h4>
                   <p className="text-xs text-slate-500">
                     We automatically matched fields where possible. Confirm or adjust the column dropdowns below.
                   </p>

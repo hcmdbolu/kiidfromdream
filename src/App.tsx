@@ -53,7 +53,7 @@ function MainApp() {
   // Persistent side panel hidden state
   const [sidebarHidden, setSidebarHidden] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('kiidfromdream_sidebar_hidden_v1');
+      const saved = localStorage.getItem('smartsales_sidebar_hidden_v1');
       return saved === 'true';
     } catch {
       return false;
@@ -62,7 +62,7 @@ function MainApp() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('kiidfromdream_sidebar_hidden_v1', String(sidebarHidden));
+      localStorage.setItem('smartsales_sidebar_hidden_v1', String(sidebarHidden));
     } catch {}
   }, [sidebarHidden]);
 

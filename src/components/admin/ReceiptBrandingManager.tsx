@@ -289,7 +289,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="text"
                   value={form.business_name}
                   onChange={e => setForm({ ...form, business_name: e.target.value })}
-                  placeholder="e.g. KIID FROM DREAM LTD"
+                  placeholder="e.g. SMARTSALES LTD"
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all uppercase"
                 />
@@ -357,7 +357,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="email"
                   value={form.email}
                   onChange={e => setForm({ ...form, email: e.target.value })}
-                  placeholder="e.g. sales@kiidfromdream.com"
+                  placeholder="e.g. sales@smartsales.com"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
@@ -582,7 +582,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                   type="text"
                   value={form.footer_thank_you}
                   onChange={e => setForm({ ...form, footer_thank_you: e.target.value })}
-                  placeholder="e.g. Thank you for choosing KIID FROM DREAM!"
+                  placeholder="e.g. Thank you for choosing SMARTSALES!"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all font-semibold"
                 />
               </div>
@@ -686,7 +686,7 @@ export const ReceiptBrandingManager: React.FC = () => {
                 )}
                 
                 <h2 className="text-[12.5px] font-black tracking-wide text-slate-950 uppercase leading-snug">
-                  {form.business_name || 'KIID FROM DREAM LTD'}
+                  {form.business_name || 'SMARTSALES LTD'}
                 </h2>
 
                 {form.tagline && (

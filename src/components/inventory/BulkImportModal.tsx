@@ -45,6 +45,7 @@ const TARGET_FIELDS: TargetField[] = [
   { key: 'reorder_level', label: 'Reorder Level', required: false, description: 'Low stock threshold — supports float decimals (e.g. 15.5 kg, 20 pieces)' },
   { key: 'expiry_date', label: 'Expiry Date', required: false, description: 'Date format YYYY-MM-DD (defaults to 30 days ahead)' },
   { key: 'supplier_id', label: 'Supplier ID', required: false, description: 'Vendor code e.g. SUP-00001 (defaults to primary supplier)' },
+  { key: 'barcode', label: 'Barcode / EAN / UPC', required: false, description: 'Product barcode or EAN/UPC for handheld scanners' },
 ];
 
 const SAMPLE_CSV_DATA = `Product Name,Category,Unit Price (NGN),Initial Stock,Measurement Type,Wholesale Cost (NGN),Reorder Level,Expiry Date,Supplier ID
@@ -212,7 +213,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `kiidfromdream_product_import_template.csv`);
+    link.setAttribute('download', `smartsales_product_import_template.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -274,6 +275,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
       reorder_level: ['reorderlevel', 'reorder', 'minlevel', 'threshold', 'lowstockthreshold', 'minstock'],
       expiry_date: ['expirydate', 'expiry', 'expdate', 'expirationdate', 'bestbefore'],
       supplier_id: ['supplierid', 'supplier', 'vendorid', 'vendor', 'suppliercode'],
+      barcode: ['barcode', 'upc', 'ean', 'bar_code', 'scancode', 'gtin'],
     };
 
     const patterns = searchPatterns[targetKey] || [];
@@ -379,6 +381,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
         reorder: getVal('reorder_level'),
         expiry: getVal('expiry_date'),
         supplier: getVal('supplier_id'),
+        barcode: getVal('barcode'),
       };
 
       // 1. Validate Product Name
@@ -448,6 +451,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
         reorder_level: reorderLevel,
         supplier_id: supplierId,
         status: 'Active' as ProductStatus,
+        barcode: rawValues.barcode ? rawValues.barcode.trim() : undefined,
       };
 
       return {

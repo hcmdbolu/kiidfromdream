@@ -502,7 +502,7 @@ export const CycleCountModal: React.FC<CycleCountModalProps> = ({
         {printingRecord && (
           <div className="hidden print:block fixed inset-0 bg-white p-8 z-9999 text-slate-900 font-mono text-xs">
             <div className="text-center pb-4 border-b border-dashed border-slate-400">
-              <h1 className="text-base font-bold uppercase">{receiptSettings.business_name || 'KIID FROM DREAM'}</h1>
+              <h1 className="text-base font-bold uppercase">{receiptSettings.business_name || 'SMARTSALES'}</h1>
               <p className="text-[10px]">{receiptSettings.tagline}</p>
               <p className="text-[10px]">{receiptSettings.address_line1}</p>
               <p className="text-[10px]">Tel: {receiptSettings.phone_numbers}</p>

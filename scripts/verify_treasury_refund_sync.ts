@@ -277,7 +277,7 @@ async function runVerification() {
     type: 'BANK_TRANSFER_ACCOUNT',
     provider: 'GTBank',
     account_number: '0123456789',
-    account_name: 'KIIDFROMDREAM ENTERPRISE',
+    account_name: 'SMARTSALES ENTERPRISE',
     bank_name: 'Guaranty Trust Bank',
     status: 'Active',
     is_default: true,

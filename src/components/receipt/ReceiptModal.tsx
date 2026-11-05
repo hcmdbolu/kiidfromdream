@@ -149,7 +149,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ transaction, onClose
                 </div>
               )}
               <h2 className="text-[12.5px] font-black tracking-wide text-slate-950 uppercase leading-snug">
-                {receiptSettings.business_name || 'KIID FROM DREAM LTD'}
+                {receiptSettings.business_name || 'SMARTSALES LTD'}
               </h2>
               {receiptSettings.tagline && (
                 <p className="text-[9px] text-slate-600 uppercase font-semibold leading-tight">

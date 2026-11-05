@@ -82,7 +82,7 @@ export interface PosTerminalConfig {
   type: PosAccountType;
   provider: PosProvider;
   terminal_id?: string; // Terminal Serial or Merchant ID (e.g. "MP-882019", "OPAY-7721")
-  account_name: string; // e.g. "Kiid From Dream Enterprises"
+  account_name: string; // e.g. "SmartSales Enterprises"
   account_number: string; // e.g. "0123456789"
   bank_name: string; // e.g. "Moniepoint Microfinance Bank", "Guaranty Trust Bank"
   assigned_location?: string; // e.g. "Counter 1 - Retail Counter", "Main Checkout"

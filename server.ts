@@ -14,7 +14,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const defaultDataDir = process.env.POS_DATA_DIR || (
   process.env.APPDATA 
-    ? path.resolve(process.env.APPDATA, 'kiidfromdream-pos', 'data')
+    ? path.resolve(process.env.APPDATA, 'smartsales-pos', 'data')
     : path.resolve(__dirname, 'data')
 );
 const DATA_DIR = defaultDataDir;
@@ -2512,7 +2512,7 @@ app.get('/api/database/backup', (req: Request, res: Response) => {
   try {
     const snapshot = sqliteDb.getSnapshot();
     const backupData = {
-      system: 'KIIDFROMDREAM POS & INVENTORY',
+      system: 'SMARTSALES POS & INVENTORY',
       version: db.version || snapshot?.version || 1,
       export_date: new Date().toISOString(),
       products: db.products || snapshot?.products || [],
@@ -2539,7 +2539,7 @@ app.get('/api/database/backup', (req: Request, res: Response) => {
     res.json({
       success: true,
       backup: backupData,
-      filename: `kiidfromdream_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
+      filename: `smartsales_pos_backup_${new Date().toISOString().slice(0, 10)}.json`,
     });
   } catch (err: any) {
     console.error('Error in GET /api/database/backup:', err);
