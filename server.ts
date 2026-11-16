@@ -13,8 +13,8 @@ const isProduction = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 const defaultDataDir = process.env.POS_DATA_DIR || (
-  process.env.APPDATA 
-    ? path.resolve(process.env.APPDATA, 'smartsales-pos', 'data')
+  process.env.APPDATA
+    ? path.resolve(process.env.APPDATA, 'smart-sales', 'data')
     : path.resolve(__dirname, 'data')
 );
 const DATA_DIR = defaultDataDir;
@@ -331,7 +331,7 @@ app.post('/api/auth/unlock', (req: Request, res: Response) => {
     const authHeader = req.headers.authorization;
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (req.headers['x-session-token'] as string);
     const session = verifySessionToken(token);
-    if (!session.valid || session.role !== 'Admin') {
+    if (!session.valid || (session.role !== 'Admin' && session.role !== 'Super Admin')) {
       return res.status(403).json({ success: false, error: 'Admin privileges required to clear terminal lockouts' });
     }
     loginAttemptsMap.clear();
@@ -547,6 +547,21 @@ app.post('/api/audit-logs', (req: Request, res: Response) => {
   }
 });
 
+// 4b. Query Sales Report (Sorted by timestamp DESC with optional filters)
+app.get('/api/sales', (req: Request, res: Response) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+    const paymentMethod = typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined;
+    const cashierId = typeof req.query.cashierId === 'string' ? req.query.cashierId : undefined;
+    const sales = sqliteDb.getSales({ startDate, endDate, paymentMethod, cashierId });
+    res.json({ success: true, sales, count: sales.length });
+  } catch (err: any) {
+    console.error('Error in GET /api/sales:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  }
+});
+
 // 5. Centralized Sale Transaction Creation
 app.post('/api/sales', (req: Request, res: Response) => {
   try {
@@ -574,17 +589,17 @@ app.post('/api/sales', (req: Request, res: Response) => {
     const finalAmount = Number(transaction.final_amount) || 0;
 
     if (discountApplied < 0 || discountApplied > totalAmount) {
-      return res.status(400).json({ 
-        success: false, 
-        error: `Invalid discount amount: ₦${discountApplied} exceeds retail total ₦${totalAmount}` 
+      return res.status(400).json({
+        success: false,
+        error: `Invalid discount amount: ₦${discountApplied} exceeds retail total ₦${totalAmount}`
       });
     }
 
     const expectedFinal = Math.max(0, Math.round(totalAmount - discountApplied));
     if (Math.abs(finalAmount - expectedFinal) > 1) {
-      return res.status(400).json({ 
-        success: false, 
-        error: `Mathematical discrepancy: final_amount (₦${finalAmount}) does not match total - discount (₦${expectedFinal})` 
+      return res.status(400).json({
+        success: false,
+        error: `Mathematical discrepancy: final_amount (₦${finalAmount}) does not match total - discount (₦${expectedFinal})`
       });
     }
 
@@ -2508,7 +2523,7 @@ app.post('/api/admin/reset', (req: Request, res: Response) => {
 // See line 345 for the unified, cryptographically enforced SQLite WAL purge implementation.
 
 // 17. Database Backup Export & Restore (Accessible to all authorized staff)
-app.get('/api/database/backup', (req: Request, res: Response) => {
+const handleDatabaseBackup = (req: Request, res: Response) => {
   try {
     const snapshot = sqliteDb.getSnapshot();
     const backupData = {
@@ -2544,6 +2559,31 @@ app.get('/api/database/backup', (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Error in GET /api/database/backup:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to export database backup' });
+  }
+};
+app.get('/api/database/backup', handleDatabaseBackup);
+app.get('/api/admin/backup', handleDatabaseBackup);
+
+app.post('/api/database/mirror-backup', (req: Request, res: Response) => {
+  try {
+    let mirrorDir = typeof req.body?.mirrorDir === 'string' ? req.body.mirrorDir.trim() : '';
+    if (!mirrorDir) {
+      const cfgPath = path.resolve(DATA_DIR, 'backup_mirror_config.json');
+      if (fs.existsSync(cfgPath)) {
+        const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+        mirrorDir = cfg?.mirrorDir || '';
+      }
+    }
+    if (!mirrorDir) {
+      return res.status(400).json({ success: false, error: 'No external backup mirror folder configured.' });
+    }
+    const result = sqliteDb.mirrorBackupToDir(mirrorDir);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Mirror backup failed' });
   }
 });
 
@@ -2687,7 +2727,7 @@ process.on('beforeExit', () => {
   try {
     saveDatabase();
     sqliteDb.checkpoint('TRUNCATE');
-  } catch {}
+  } catch { }
 });
 
 startServer().catch(err => {

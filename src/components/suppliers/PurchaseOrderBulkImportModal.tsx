@@ -1,20 +1,21 @@
 import React, { useState, useRef, useMemo, ChangeEvent, DragEvent } from 'react';
 import { usePos } from '../../context/PosContext';
+import { parseSpreadsheetFile } from '../../utils/spreadsheet';
 import { PurchaseOrder, PurchaseOrderItem, POStatus } from '../../types';
-import { 
-  Upload, 
-  Download, 
-  FileSpreadsheet, 
-  X, 
-  Check, 
-  AlertCircle, 
-  CheckCircle2, 
-  ArrowRight, 
-  ArrowLeft, 
-  FileText, 
-  Sparkles, 
-  Layers, 
-  Info, 
+import {
+  Upload,
+  Download,
+  FileSpreadsheet,
+  X,
+  Check,
+  AlertCircle,
+  CheckCircle2,
+  ArrowRight,
+  ArrowLeft,
+  FileText,
+  Sparkles,
+  Layers,
+  Info,
   RotateCcw,
   FileCheck2,
   Package,
@@ -99,10 +100,10 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
     URL.revokeObjectURL(url);
   };
 
-  const processFileContent = (content: string, name?: string) => {
+  const processFileContent = (content: string, name?: string, preParsed?: { headers: string[]; rows: string[][] }) => {
     setUploadError(null);
     try {
-      const { headers, rows } = parseCSV(content);
+      const { headers, rows } = preParsed || parseCSV(content);
       if (headers.length === 0 || rows.length === 0) {
         setUploadError('CSV file appears empty or missing data rows.');
         return;
@@ -142,16 +143,19 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
     }
   };
 
+  const handleIncomingFile = async (file: File) => {
+    try {
+      const parsed = await parseSpreadsheetFile(file, parseCSV);
+      processFileContent('', file.name, parsed);
+    } catch (err: any) {
+      setUploadError(err.message || 'Error reading uploaded spreadsheet file.');
+    }
+  };
+
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      processFileContent(text, file.name);
-    };
-    reader.onerror = () => setUploadError('Error reading uploaded file.');
-    reader.readAsText(file);
+    void handleIncomingFile(file);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -159,12 +163,7 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      processFileContent(text, file.name);
-    };
-    reader.readAsText(file);
+    void handleIncomingFile(file);
   };
 
   // Group raw rows into distinct Purchase Orders
@@ -200,14 +199,14 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
       const actualDate = getVal('actual_delivery_date') || undefined;
       const itemName = getVal('item_name');
       const qtyOrdered = Math.max(0, cleanNumber(getVal('quantity_ordered'), 1));
-      
+
       let rawStatus = getVal('status').toUpperCase();
       let status: POStatus = 'RECEIVED';
       if (rawStatus.includes('PEND')) status = 'PENDING';
       else if (rawStatus.includes('PART')) status = 'PARTIALLY_RECEIVED';
       else if (rawStatus.includes('CANC')) status = 'CANCELLED';
 
-      const qtyReceived = status === 'RECEIVED' 
+      const qtyReceived = status === 'RECEIVED'
         ? Math.max(0, cleanNumber(getVal('quantity_received'), qtyOrdered))
         : Math.max(0, cleanNumber(getVal('quantity_received'), 0));
 
@@ -219,7 +218,7 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
       let resolvedSupplierId = 'SUP-00001';
       let supplierName = supplierInput || 'Legacy Vendor';
 
-      const foundSup = suppliers.find(s => 
+      const foundSup = suppliers.find(s =>
         s.supplier_id.toLowerCase() === supplierInput.toLowerCase() ||
         s.supplier_name.toLowerCase() === supplierInput.toLowerCase()
       );
@@ -229,7 +228,7 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
       }
 
       // Check if product exists in catalog
-      const foundProd = products.find(p => 
+      const foundProd = products.find(p =>
         p.item_name.toLowerCase() === itemName.toLowerCase() ||
         p.item_sn.toLowerCase() === itemName.toLowerCase()
       );
@@ -372,7 +371,7 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
 
         {/* Body Content */}
         <div className="p-6 overflow-y-auto flex-1 bg-slate-50/50 space-y-4">
-          
+
           {/* STEP 1: Upload */}
           {currentStep === 'upload' && (
             <div className="space-y-4">
@@ -399,14 +398,13 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
                   onDragLeave={() => setIsDragging(false)}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${
-                    isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-slate-400 bg-white'
-                  }`}
+                  className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all ${isDragging ? 'border-indigo-500 bg-indigo-50' : 'border-slate-300 hover:border-slate-400 bg-white'
+                    }`}
                 >
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv, .tsv, .txt"
+                    accept=".csv, .tsv, .txt, .xlsx, .xls"
                     onChange={handleFileUpload}
                     className="hidden"
                   />
@@ -636,9 +634,8 @@ export const PurchaseOrderBulkImportModal: React.FC<PurchaseOrderBulkImportModal
                               ₦{poCost.toLocaleString()}
                             </td>
                             <td className="py-2 px-2.5 font-sans">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                po.status === 'RECEIVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${po.status === 'RECEIVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
                                 {po.status}
                               </span>
                             </td>

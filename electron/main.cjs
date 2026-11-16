@@ -10,17 +10,51 @@ let serverProcess = null;
 const PORT = process.env.PORT || 3000;
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 
-// Ensure data directory in user's AppData to allow persistence across updates
-const userDataPath = app.getPath('userData');
-const appDataDir = path.join(userDataPath, 'data');
+// Ensure data directory in OS Roaming AppData to allow persistence across rebrands & updates
+const appDataRoot = app.getPath('appData');
+const appDataDir = path.join(appDataRoot, 'smart-sales', 'data');
 if (!fs.existsSync(appDataDir)) {
   fs.mkdirSync(appDataDir, { recursive: true });
 }
 process.env.POS_DATA_DIR = appDataDir;
 
-// Copy initial seed template if database does not yet exist in AppData
+// Migrate legacy database from previous app/brand folders if smart-sales DB doesn't exist yet
 const userDbPath = path.join(appDataDir, 'pos_database.db');
 const userJsonPath = path.join(appDataDir, 'pos_database.json');
+
+if (!fs.existsSync(userDbPath)) {
+  const legacyFolders = ['SmartSales POS', 'smartsales-pos', 'KIID FROM DREAM POS', 'kiidfromdream-pos'];
+  for (const folder of legacyFolders) {
+    const legacyDataDir = path.join(appDataRoot, folder, 'data');
+    const legacyDb = fs.existsSync(path.join(legacyDataDir, 'pos_database.db'))
+      ? path.join(legacyDataDir, 'pos_database.db')
+      : fs.existsSync(path.join(legacyDataDir, 'pos_database.sqlite'))
+        ? path.join(legacyDataDir, 'pos_database.sqlite')
+        : null;
+
+    if (legacyDb) {
+      try {
+        fs.copyFileSync(legacyDb, userDbPath);
+        for (const suffix of ['-wal', '-shm']) {
+          if (fs.existsSync(legacyDb + suffix)) {
+            fs.copyFileSync(legacyDb + suffix, userDbPath + suffix);
+          }
+        }
+        const legacyUploads = path.join(legacyDataDir, 'uploads');
+        const targetUploads = path.join(appDataDir, 'uploads');
+        if (fs.existsSync(legacyUploads)) {
+          fs.cpSync(legacyUploads, targetUploads, { recursive: true, force: false });
+        }
+        console.log(`[ELECTRON] Migrated legacy database from ${legacyDataDir} to ${appDataDir}`);
+        break;
+      } catch (e) {
+        console.warn(`[ELECTRON] Failed to migrate legacy DB from ${legacyDataDir}:`, e.message);
+      }
+    }
+  }
+}
+
+// Copy initial seed template if database does not yet exist in AppData
 if (!fs.existsSync(userDbPath) && !fs.existsSync(userJsonPath)) {
   const resourceJsonPath = path.join(process.resourcesPath || '', 'data', 'pos_database.json');
   const appJsonPath = path.join(__dirname, '..', 'data', 'pos_database.json');
@@ -110,6 +144,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'SMARTSALES - POS & Inventory System',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     backgroundColor: '#0f172a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -257,6 +292,38 @@ ipcMain.handle('open-backup-file', async () => {
     return { success: true, filePath: targetPath, content };
   } catch (err) {
     console.error('[ELECTRON] Open backup dialog error:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Select & persist External Off-Disk Backup Mirror folder
+ipcMain.handle('get-backup-mirror-dir', async () => {
+  try {
+    const cfgPath = path.join(appDataDir, 'backup_mirror_config.json');
+    if (fs.existsSync(cfgPath)) {
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      return cfg.mirrorDir || null;
+    }
+  } catch {}
+  return null;
+});
+
+ipcMain.handle('select-backup-mirror-dir', async () => {
+  if (!mainWindow) return { success: false, error: 'No active application window' };
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select External Backup Mirror Folder (USB Drive or Cloud Folder)',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (canceled || !filePaths || filePaths.length === 0) {
+      return { canceled: true };
+    }
+    const mirrorDir = filePaths[0];
+    const cfgPath = path.join(appDataDir, 'backup_mirror_config.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({ mirrorDir, updatedAt: new Date().toISOString() }, null, 2), 'utf-8');
+    return { success: true, mirrorDir };
+  } catch (err) {
+    console.error('[ELECTRON] Select backup mirror folder error:', err);
     return { success: false, error: err.message };
   }
 });

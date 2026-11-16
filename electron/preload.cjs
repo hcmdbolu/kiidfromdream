@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   toggleFullscreen: () => ipcRenderer.invoke('toggle-fullscreen'),
   saveBackupFile: (data) => ipcRenderer.invoke('save-backup-file', data),
   openBackupFile: () => ipcRenderer.invoke('open-backup-file'),
+  getBackupMirrorDir: () => ipcRenderer.invoke('get-backup-mirror-dir'),
+  selectBackupMirrorDir: () => ipcRenderer.invoke('select-backup-mirror-dir'),
   onHardwareBarcodeScan: (callback) => {
     const handler = (_event, data) => callback(data);
     ipcRenderer.on('hardware-barcode-scan', handler);

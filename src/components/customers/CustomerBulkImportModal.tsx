@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, ChangeEvent, DragEvent } from 'react';
 import { usePos } from '../../context/PosContext';
+import { parseSpreadsheetFile } from '../../utils/spreadsheet';
 import { Customer, CustomerType } from '../../types';
 import { 
   Upload, 
@@ -165,10 +166,10 @@ export const CustomerBulkImportModal: React.FC<CustomerBulkImportModalProps> = (
     URL.revokeObjectURL(url);
   };
 
-  const processFileContent = (content: string, name?: string) => {
+  const processFileContent = (content: string, name?: string, preParsed?: { headers: string[]; rows: string[][] }) => {
     setUploadError(null);
     try {
-      const { headers, rows } = parseCSV(content);
+      const { headers, rows } = preParsed || parseCSV(content);
       if (headers.length === 0 || rows.length === 0) {
         setUploadError('CSV file appears empty or missing data rows.');
         return;
@@ -207,16 +208,19 @@ export const CustomerBulkImportModal: React.FC<CustomerBulkImportModalProps> = (
     }
   };
 
+  const handleIncomingFile = async (file: File) => {
+    try {
+      const parsed = await parseSpreadsheetFile(file, parseCSV);
+      processFileContent('', file.name, parsed);
+    } catch (err: any) {
+      setUploadError(err.message || 'Error reading uploaded spreadsheet file.');
+    }
+  };
+
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      processFileContent(text, file.name);
-    };
-    reader.onerror = () => setUploadError('Error reading uploaded file.');
-    reader.readAsText(file);
+    void handleIncomingFile(file);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -224,12 +228,7 @@ export const CustomerBulkImportModal: React.FC<CustomerBulkImportModalProps> = (
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      processFileContent(text, file.name);
-    };
-    reader.readAsText(file);
+    void handleIncomingFile(file);
   };
 
   // Pre-flight data mapping & validation
@@ -430,7 +429,7 @@ export const CustomerBulkImportModal: React.FC<CustomerBulkImportModalProps> = (
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv, .tsv, .txt"
+                    accept=".csv, .tsv, .txt, .xlsx, .xls"
                     onChange={handleFileUpload}
                     className="hidden"
                   />

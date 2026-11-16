@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, ChangeEvent, DragEvent } from 'react';
 import { usePos } from '../../context/PosContext';
+import { parseSpreadsheetFile } from '../../utils/spreadsheet';
 import { Product, ProductCategory, ProductUnit, ProductStatus } from '../../types';
 import { 
   Upload, 
@@ -226,10 +227,10 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
   };
 
   // Process raw CSV string
-  const processRawCSV = (text: string, sourceName: string) => {
+  const processRawCSV = (text: string, sourceName: string, preParsed?: { headers: string[]; rows: string[][] }) => {
     setUploadError(null);
     try {
-      const { headers, rows } = parseCSV(text);
+      const { headers, rows } = preParsed || parseCSV(text);
       if (headers.length === 0) {
         setUploadError('The CSV file appears to be empty or could not be parsed.');
         return;
@@ -318,21 +319,19 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
     }
   };
 
-  const handleFileSelected = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.csv') && !file.name.toLowerCase().endsWith('.txt')) {
-      setUploadError('Please select a valid CSV file (.csv format).');
+  const handleFileSelected = async (file: File) => {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith('.csv') && !lower.endsWith('.txt') && !lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
+      setUploadError('Please select a valid CSV or Excel file (.csv, .xlsx, .xls).');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      processRawCSV(content, file.name);
-    };
-    reader.onerror = () => {
-      setUploadError('Failed to read selected file.');
-    };
-    reader.readAsText(file, 'UTF-8');
+    try {
+      const parsed = await parseSpreadsheetFile(file, parseCSV);
+      processRawCSV('', file.name, parsed);
+    } catch (err: any) {
+      setUploadError(err.message || 'Failed to read selected spreadsheet file.');
+    }
   };
 
   // Update field mapping
@@ -686,7 +685,7 @@ export const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClos
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileInputChange}
-                    accept=".csv, text/csv, text/plain"
+                    accept=".csv, .xlsx, .xls, text/csv, text/plain"
                     className="hidden"
                   />
 

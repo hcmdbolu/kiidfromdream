@@ -73,6 +73,19 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
   const [exportSuccess, setExportSuccess] = useState<{ filename: string; filePath?: string } | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Off-Disk External Backup Mirror State
+  const [mirrorDir, setMirrorDir] = useState<string>('');
+  const [isMirroring, setIsMirroring] = useState(false);
+  const [mirrorMessage, setMirrorMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen && window.electronAPI?.getBackupMirrorDir) {
+      window.electronAPI.getBackupMirrorDir().then((dir) => {
+        if (dir) setMirrorDir(dir);
+      }).catch(() => {});
+    }
+  }, [isOpen]);
+
   // Restore State
   const [backupPreview, setBackupPreview] = useState<BackupPreviewInfo | null>(null);
   const [isAnalyzingFile, setIsAnalyzingFile] = useState(false);
@@ -487,6 +500,75 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                     </>
                   )}
                 </button>
+              </div>
+
+              {/* External Off-Disk Backup Mirror */}
+              <div className="bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-semibold text-white">External Off-Disk SQLite Mirror (USB / Cloud Folder)</h4>
+                    <p className="text-[11px] text-slate-400">
+                      Automatically mirrors daily SQLite snapshots to a secondary drive or OneDrive/Google Drive folder.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {window.electronAPI?.selectBackupMirrorDir && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const res = await window.electronAPI?.selectBackupMirrorDir?.();
+                          if (res?.success && res.mirrorDir) {
+                            setMirrorDir(res.mirrorDir);
+                            setMirrorMessage({ text: `Mirror folder set to: ${res.mirrorDir}`, ok: true });
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                      >
+                        Choose Folder
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={isMirroring || !mirrorDir.trim()}
+                      onClick={async () => {
+                        setIsMirroring(true);
+                        setMirrorMessage(null);
+                        try {
+                          const res = await fetch('/api/database/mirror-backup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mirrorDir: mirrorDir.trim() }),
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.success) {
+                            setMirrorMessage({ text: `SQLite snapshot mirrored to ${data.targetPath}`, ok: true });
+                          } else {
+                            setMirrorMessage({ text: data.error || 'Failed to mirror backup', ok: false });
+                          }
+                        } catch (err: any) {
+                          setMirrorMessage({ text: err.message || 'Network error', ok: false });
+                        } finally {
+                          setIsMirroring(false);
+                        }
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 cursor-pointer"
+                    >
+                      {isMirroring ? 'Mirroring...' : 'Mirror Now'}
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={mirrorDir}
+                  onChange={(e) => setMirrorDir(e.target.value)}
+                  placeholder="e.g. D:\SmartSales_Backups or C:\Users\...\OneDrive\Backups"
+                  className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500"
+                />
+                {mirrorMessage && (
+                  <div className={`text-[11px] font-mono ${mirrorMessage.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {mirrorMessage.text}
+                  </div>
+                )}
               </div>
             </div>
           )}

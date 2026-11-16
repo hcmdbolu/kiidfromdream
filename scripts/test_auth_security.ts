@@ -18,33 +18,32 @@ async function testAuthSecurity() {
     }
   }
 
-  // 1. Valid Cashier credentials
+  // 1. Valid Super Admin credentials (seeded on all clean installs)
   const res1 = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'kola', pin: '1111' }),
+    body: JSON.stringify({ username: 'Boluwatife', pin: '2030170611' }),
   });
   const data1 = await res1.json();
-  assert(res1.status === 200 && data1.success && data1.staff.role === 'Cashier', '1. Cashier kola with PIN 1111 logs in successfully');
+  assert(res1.status === 200 && data1.success && data1.staff.role === 'Super Admin', '1. Super Admin Boluwatife logs in successfully and receives token');
+  const adminToken = data1.token;
 
-  // 2. Valid Admin credentials
+  // 2. Quick-PIN-only entry (no username required for touch POS)
   const res2 = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'admin', pin: '9999' }),
+    body: JSON.stringify({ pin: '2030170611' }),
   });
   const data2 = await res2.json();
-  assert(res2.status === 200 && data2.success && data2.staff.role === 'Admin', '2. Admin with PIN 9999 logs in successfully and receives token');
-  const adminToken = data2.token;
+  assert(res2.status === 200 && data2.success && data2.staff.staff_id === 'STAFF-SUPER-001', '2. PIN-only entry auto-identifies Boluwatife (STAFF-SUPER-001)');
 
-  // 3. Quick-PIN-only entry (no username required for touch POS)
+  // 3. Invalid credentials rejection
   const res3 = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pin: '2222' }), // Tayo's PIN
+    body: JSON.stringify({ username: 'Boluwatife', pin: '0000' }),
   });
-  const data3 = await res3.json();
-  assert(res3.status === 200 && data3.success && data3.staff.staff_id === 'STAFF-002', '3. PIN-only entry (2222) auto-identifies Tayo (STAFF-002)');
+  assert(res3.status === 401, '3. Invalid PIN is rejected with HTTP 401');
 
   // 4. Rate limiting test: Enter wrong password multiple times for a test user
   console.log('\n  Testing brute-force rate limiter (5 failed attempts)...');

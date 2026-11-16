@@ -136,7 +136,7 @@ export class PosDatabase {
   constructor(dataDir?: string) {
     const defaultDataDir = process.env.POS_DATA_DIR || (
       process.env.APPDATA
-        ? path.resolve(process.env.APPDATA, 'smartsales-pos', 'data')
+        ? path.resolve(process.env.APPDATA, 'smart-sales', 'data')
         : path.resolve(process.cwd(), 'data')
     );
     const resolvedDataDir = dataDir || defaultDataDir;
@@ -318,6 +318,23 @@ export class PosDatabase {
         console.log('[SQLITE] Daily backup snapshot completed successfully.');
       }
 
+      // Mirror daily snapshot to external off-disk folder if configured
+      try {
+        const cfgPath = path.resolve(resolvedDataDir, 'backup_mirror_config.json');
+        if (fs.existsSync(cfgPath)) {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+          if (cfg?.mirrorDir && fs.existsSync(cfg.mirrorDir)) {
+            const mirrorTarget = path.resolve(cfg.mirrorDir, `smartsales_backup_${today}.db`);
+            if (!fs.existsSync(mirrorTarget)) {
+              fs.copyFileSync(backupPath, mirrorTarget);
+              console.log(`[SQLITE] Mirrored daily backup to external folder: ${mirrorTarget}`);
+            }
+          }
+        }
+      } catch (mirrorErr: any) {
+        console.warn('[SQLITE] External backup mirror skipped:', mirrorErr.message);
+      }
+
       // Retention: keep last 7 daily backups
       const files = fs.readdirSync(backupDir);
       const backupFiles = files
@@ -337,6 +354,31 @@ export class PosDatabase {
       }
     } catch (err: any) {
       console.warn('[SQLITE] Backup creation failed non-fatally:', err.message);
+    }
+  }
+
+  /**
+   * Immediately mirror a clean VACUUM INTO snapshot to an external/USB/cloud folder
+   */
+  public mirrorBackupToDir(mirrorDir: string): { success: boolean; targetPath?: string; error?: string } {
+    try {
+      if (!mirrorDir || !fs.existsSync(mirrorDir)) {
+        return { success: false, error: 'Selected external backup folder does not exist or is disconnected.' };
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const targetPath = path.resolve(mirrorDir, `smartsales_backup_${stamp}.db`);
+      const escaped = targetPath.replace(/'/g, "''");
+      this.db.exec(`VACUUM INTO '${escaped}';`);
+
+      const dataDir = path.dirname(this.dbPath);
+      fs.writeFileSync(
+        path.resolve(dataDir, 'backup_mirror_config.json'),
+        JSON.stringify({ mirrorDir, updatedAt: new Date().toISOString(), lastMirroredAt: new Date().toISOString() }, null, 2),
+        'utf-8'
+      );
+      return { success: true, targetPath };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to write backup mirror' };
     }
   }
 
@@ -1261,10 +1303,11 @@ export class PosDatabase {
     return this.transaction(() => {
       let inserted = 0;
       let updated = 0;
+      const failedRows: Array<{ index: number; identifier: string; error: string }> = [];
 
-      const stmtCheck = this.db.prepare('SELECT customer_id FROM customers WHERE customer_id = ? OR phone = ?');
+      const stmtCheck = this.db.prepare("SELECT customer_id FROM customers WHERE customer_id = ? OR (phone != '' AND phone = ?)");
       const stmtInsert = this.db.prepare(`
-        INSERT INTO customers (customer_id, name, phone, balance, status, data)
+        INSERT OR IGNORE INTO customers (customer_id, name, phone, balance, status, data)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
       const stmtUpdate = this.db.prepare(`
@@ -1277,55 +1320,68 @@ export class PosDatabase {
         WHERE customer_id = ?
       `);
 
-      for (const customer of customers) {
+      for (let i = 0; i < customers.length; i++) {
+        const customer = customers[i];
         if (!customer) continue;
-        const phone = (customer.phone || customer.phone_number || '').trim();
-        const name = (customer.full_name || customer.name || '').trim();
-        if (!name && !phone) continue;
+        try {
+          const phone = String(customer.phone || customer.phone_number || '').trim();
+          const name = String(customer.full_name || customer.name || '').trim();
+          if (!name && !phone) {
+            failedRows.push({ index: i + 1, identifier: 'Empty Row', error: 'Missing both name and phone' });
+            continue;
+          }
 
-        const id = customer.customer_id || customer.id || `CUST-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        customer.customer_id = id;
-        customer.id = id;
-        customer.full_name = name;
-        customer.name = name;
-        customer.phone_number = phone;
-        customer.phone = phone;
+          const id = customer.customer_id || customer.id || `CUST-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
+          customer.customer_id = id;
+          customer.id = id;
+          customer.full_name = name;
+          customer.name = name;
+          customer.phone_number = phone;
+          customer.phone = phone;
 
-        const balanceNum = Number(customer.balance) || 0;
-        customer.balance = balanceNum;
+          const balanceNum = Number(customer.balance) || 0;
+          customer.balance = balanceNum;
 
-        const existingRow = stmtCheck.get(id, phone) as { customer_id: string } | undefined;
+          const existingRow = stmtCheck.get(id, phone) as { customer_id: string } | undefined;
 
-        if (existingRow) {
-          if (updateExisting) {
-            const targetId = existingRow.customer_id;
-            customer.customer_id = targetId;
-            customer.id = targetId;
-            stmtUpdate.run(
+          if (existingRow) {
+            if (updateExisting) {
+              const targetId = existingRow.customer_id;
+              customer.customer_id = targetId;
+              customer.id = targetId;
+              stmtUpdate.run(
+                name,
+                phone,
+                balanceNum,
+                customer.status || 'Active',
+                JSON.stringify(customer),
+                targetId
+              );
+              updated++;
+            }
+          } else {
+            stmtInsert.run(
+              id,
               name,
               phone,
               balanceNum,
               customer.status || 'Active',
-              JSON.stringify(customer),
-              targetId
+              JSON.stringify(customer)
             );
-            updated++;
+            inserted++;
           }
-        } else {
-          stmtInsert.run(
-            id,
-            name,
-            phone,
-            balanceNum,
-            customer.status || 'Active',
-            JSON.stringify(customer)
-          );
-          inserted++;
+        } catch (rowErr: any) {
+          console.error(`[SQLITE] bulkUpsertCustomers row ${i + 1} failed:`, rowErr.message);
+          failedRows.push({
+            index: i + 1,
+            identifier: String(customer?.full_name || customer?.customer_id || `Row ${i + 1}`),
+            error: rowErr.message || 'Row insert failed',
+          });
         }
       }
 
       this.touchVersion();
-      return { count: inserted + updated, inserted, updated };
+      return { count: inserted + updated, inserted, updated, failed: failedRows.length, errors: failedRows };
     })();
   }
 
@@ -1337,10 +1393,11 @@ export class PosDatabase {
     return this.transaction(() => {
       let inserted = 0;
       let updated = 0;
+      const failedRows: Array<{ index: number; identifier: string; error: string }> = [];
 
-      const stmtCheck = this.db.prepare('SELECT supplier_id FROM suppliers WHERE supplier_id = ? OR supplier_name = ?');
+      const stmtCheck = this.db.prepare("SELECT supplier_id FROM suppliers WHERE supplier_id = ? OR (supplier_name != '' AND LOWER(supplier_name) = LOWER(?))");
       const stmtInsert = this.db.prepare(`
-        INSERT INTO suppliers (supplier_id, supplier_name, status, data)
+        INSERT OR IGNORE INTO suppliers (supplier_id, supplier_name, status, data)
         VALUES (?, ?, ?, ?)
       `);
       const stmtUpdate = this.db.prepare(`
@@ -1351,45 +1408,58 @@ export class PosDatabase {
         WHERE supplier_id = ?
       `);
 
-      for (const supplier of suppliers) {
+      for (let i = 0; i < suppliers.length; i++) {
+        const supplier = suppliers[i];
         if (!supplier) continue;
-        const name = (supplier.supplier_name || supplier.name || '').trim();
-        if (!name) continue;
+        try {
+          const name = String(supplier.supplier_name || supplier.name || '').trim();
+          if (!name) {
+            failedRows.push({ index: i + 1, identifier: 'Empty Row', error: 'Missing supplier name' });
+            continue;
+          }
 
-        const id = supplier.supplier_id || supplier.id || `SUP-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-        supplier.supplier_id = id;
-        supplier.id = id;
-        supplier.supplier_name = name;
-        supplier.name = name;
+          const id = supplier.supplier_id || supplier.id || `SUP-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
+          supplier.supplier_id = id;
+          supplier.id = id;
+          supplier.supplier_name = name;
+          supplier.name = name;
 
-        const existingRow = stmtCheck.get(id, name) as { supplier_id: string } | undefined;
+          const existingRow = stmtCheck.get(id, name) as { supplier_id: string } | undefined;
 
-        if (existingRow) {
-          if (updateExisting) {
-            const targetId = existingRow.supplier_id;
-            supplier.supplier_id = targetId;
-            supplier.id = targetId;
-            stmtUpdate.run(
+          if (existingRow) {
+            if (updateExisting) {
+              const targetId = existingRow.supplier_id;
+              supplier.supplier_id = targetId;
+              supplier.id = targetId;
+              stmtUpdate.run(
+                name,
+                supplier.status || 'Active',
+                JSON.stringify(supplier),
+                targetId
+              );
+              updated++;
+            }
+          } else {
+            stmtInsert.run(
+              id,
               name,
               supplier.status || 'Active',
-              JSON.stringify(supplier),
-              targetId
+              JSON.stringify(supplier)
             );
-            updated++;
+            inserted++;
           }
-        } else {
-          stmtInsert.run(
-            id,
-            name,
-            supplier.status || 'Active',
-            JSON.stringify(supplier)
-          );
-          inserted++;
+        } catch (rowErr: any) {
+          console.error(`[SQLITE] bulkUpsertSuppliers row ${i + 1} failed:`, rowErr.message);
+          failedRows.push({
+            index: i + 1,
+            identifier: String(supplier?.supplier_name || supplier?.supplier_id || `Row ${i + 1}`),
+            error: rowErr.message || 'Row insert failed',
+          });
         }
       }
 
       this.touchVersion();
-      return { count: inserted + updated, inserted, updated };
+      return { count: inserted + updated, inserted, updated, failed: failedRows.length, errors: failedRows };
     })();
   }
 
@@ -1407,7 +1477,7 @@ export class PosDatabase {
 
       const stmtCheck = this.db.prepare('SELECT id FROM purchase_orders WHERE id = ? OR po_number = ?');
       const stmtInsert = this.db.prepare(`
-        INSERT INTO purchase_orders (id, po_number, supplier_id, status, data)
+        INSERT OR IGNORE INTO purchase_orders (id, po_number, supplier_id, status, data)
         VALUES (?, ?, ?, ?, ?)
       `);
       const stmtUpdate = this.db.prepare(`
@@ -1422,9 +1492,12 @@ export class PosDatabase {
       const stmtGetProd = updateInventory ? this.db.prepare('SELECT data FROM products WHERE item_sn = ?') : null;
       const stmtUpdateProd = updateInventory ? this.db.prepare('UPDATE products SET quantity = ?, data = ? WHERE item_sn = ?') : null;
 
-      for (const po of orders) {
+      const failedRows: Array<{ index: number; identifier: string; error: string }> = [];
+      for (let i = 0; i < orders.length; i++) {
+        const po = orders[i];
         if (!po) continue;
-        const id = po.id || po.po_id || po.po_number || `PO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        try {
+        const id = po.id || po.po_id || po.po_number || `PO-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
         const poNum = po.po_number || po.po_id || id;
         po.id = id;
         po.po_id = id;
@@ -1513,10 +1586,18 @@ export class PosDatabase {
             }
           }
         }
+        } catch (rowErr: any) {
+          console.error(`[SQLITE] bulkUpsertPurchaseOrders row ${i + 1} failed:`, rowErr.message);
+          failedRows.push({
+            index: i + 1,
+            identifier: String(po?.po_number || po?.po_id || `PO Row ${i + 1}`),
+            error: rowErr.message || 'PO row insert failed',
+          });
+        }
       }
 
       this.touchVersion();
-      return { count: inserted + updated, inserted, updated, stockAdjustedItems };
+      return { count: inserted + updated, inserted, updated, stockAdjustedItems, failed: failedRows.length, errors: failedRows };
     })();
   }
 
@@ -1619,6 +1700,41 @@ export class PosDatabase {
 
     runTransaction();
     this.touchVersion();
+  }
+
+  /**
+   * Fetch sales sorted by timestamp DESC with optional date/payment/cashier filters
+   */
+  public getSales(filters?: { startDate?: string; endDate?: string; paymentMethod?: string; cashierId?: string }): any[] {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (filters?.startDate) {
+      conditions.push('substr(timestamp, 1, 10) >= ?');
+      params.push(filters.startDate);
+    }
+    if (filters?.endDate) {
+      conditions.push('substr(timestamp, 1, 10) <= ?');
+      params.push(filters.endDate);
+    }
+    if (filters?.paymentMethod && filters.paymentMethod !== 'All') {
+      conditions.push('payment_method = ?');
+      params.push(filters.paymentMethod);
+    }
+    if (filters?.cashierId && filters.cashierId !== 'All') {
+      conditions.push('cashier_id = ?');
+      params.push(filters.cashierId);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const rows = this.db.prepare(`SELECT data FROM sales ${whereClause} ORDER BY timestamp DESC, rowid DESC`).all(...params) as Array<{ data: string }>;
+    return rows.map((r) => {
+      try {
+        return JSON.parse(r.data);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
   }
 
   /**

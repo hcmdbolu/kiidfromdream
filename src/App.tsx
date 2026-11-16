@@ -1,32 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { PosProvider, usePos } from './context/PosContext';
 import { Sidebar } from './components/Sidebar';
 import { AppHeader } from './components/AppHeader';
 import { PosTerminal } from './components/pos/PosTerminal';
-import { InventoryManager } from './components/inventory/InventoryManager';
-import { SalesHistoryManager } from './components/sales/SalesHistoryManager';
-import { CustomerManager } from './components/customers/CustomerManager';
-import { SupplierAndPOManager } from './components/suppliers/SupplierAndPOManager';
-import { ReportingDashboard } from './components/reports/ReportingDashboard';
-import { AuditLogManager } from './components/security/AuditLogManager';
 import { ReceiptModal } from './components/receipt/ReceiptModal';
 import { RefundModal } from './components/refund/RefundModal';
 import { LoginAuthModal } from './components/auth/LoginAuthModal';
 import { StaffManagerModal } from './components/admin/StaffManagerModal';
-import { StaffAndRolesManager } from './components/admin/StaffAndRolesManager';
-import { FactoryResetModal } from './components/admin/FactoryResetModal';
-import { BackupRestoreModal } from './components/admin/BackupRestoreModal';
-import { LegacyDataMigrationModal } from './components/admin/LegacyDataMigrationModal';
-import { CashReconciliationManager } from './components/finance/CashReconciliationManager';
-import { PosTerminalSetupManager } from './components/pos/PosTerminalSetupManager';
-import { CashDrawerTreasuryManager } from './components/finance/CashDrawerTreasuryManager';
 import { CycleCountModal } from './components/inventory/CycleCountModal';
-import { CycleCountManager } from './components/inventory/CycleCountManager';
 import { StockTransferModal } from './components/inventory/StockTransferModal';
-import { ReceiptBrandingManager } from './components/admin/ReceiptBrandingManager';
 import { SaleTransaction, UserRole } from './types';
 import { PanelLeftOpen } from 'lucide-react';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+
+const InventoryManager = lazy(() => import('./components/inventory/InventoryManager').then(m => ({ default: m.InventoryManager })));
+const SalesHistoryManager = lazy(() => import('./components/sales/SalesHistoryManager').then(m => ({ default: m.SalesHistoryManager })));
+const CustomerManager = lazy(() => import('./components/customers/CustomerManager').then(m => ({ default: m.CustomerManager })));
+const SupplierAndPOManager = lazy(() => import('./components/suppliers/SupplierAndPOManager').then(m => ({ default: m.SupplierAndPOManager })));
+const ReportingDashboard = lazy(() => import('./components/reports/ReportingDashboard').then(m => ({ default: m.ReportingDashboard })));
+const AuditLogManager = lazy(() => import('./components/security/AuditLogManager').then(m => ({ default: m.AuditLogManager })));
+const StaffAndRolesManager = lazy(() => import('./components/admin/StaffAndRolesManager').then(m => ({ default: m.StaffAndRolesManager })));
+const FactoryResetModal = lazy(() => import('./components/admin/FactoryResetModal').then(m => ({ default: m.FactoryResetModal })));
+const BackupRestoreModal = lazy(() => import('./components/admin/BackupRestoreModal').then(m => ({ default: m.BackupRestoreModal })));
+const LegacyDataMigrationModal = lazy(() => import('./components/admin/LegacyDataMigrationModal').then(m => ({ default: m.LegacyDataMigrationModal })));
+const CashDrawerTreasuryManager = lazy(() => import('./components/finance/CashDrawerTreasuryManager').then(m => ({ default: m.CashDrawerTreasuryManager })));
+const CycleCountManager = lazy(() => import('./components/inventory/CycleCountManager').then(m => ({ default: m.CycleCountManager })));
+const ReceiptBrandingManager = lazy(() => import('./components/admin/ReceiptBrandingManager').then(m => ({ default: m.ReceiptBrandingManager })));
 
 function MainApp() {
   const { 
@@ -201,6 +200,11 @@ function MainApp() {
             fallbackMessage="An unexpected issue occurred while rendering this module. You can return to the POS register safely."
             onReset={() => setCurrentTab('pos')}
           >
+            <Suspense fallback={
+              <div className="flex items-center justify-center py-24 text-slate-500 text-xs font-medium">
+                Loading SmartSales module...
+              </div>
+            }>
             {currentTab === 'pos' && (
               <PosTerminal
                 onOpenCustomerModal={() => setCurrentTab('customers')}
@@ -265,6 +269,7 @@ function MainApp() {
             {currentTab === 'staff' && !isCashier && !isSupervisor && (activeStaff.role === 'Admin' || activeStaff.role === 'Super Admin') && (
               <StaffAndRolesManager />
             )}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>
@@ -319,20 +324,22 @@ function MainApp() {
         onClose={() => setIsStaffManagerOpen(false)}
       />
 
-      {/* Factory Data Reset Confirmation Modal (Admin Only) */}
-      <FactoryResetModal
-        isOpen={isFactoryResetModalOpen}
-        onClose={closeFactoryResetModal}
-      />
+      <Suspense fallback={null}>
+        {/* Factory Data Reset Confirmation Modal (Admin Only) */}
+        <FactoryResetModal
+          isOpen={isFactoryResetModalOpen}
+          onClose={closeFactoryResetModal}
+        />
 
-      {/* Accessible Data Backup & Restore Modal (All Staff) */}
-      <BackupRestoreModal
-        isOpen={isBackupModalOpen}
-        onClose={closeBackupModal}
-      />
+        {/* Accessible Data Backup & Restore Modal (All Staff) */}
+        <BackupRestoreModal
+          isOpen={isBackupModalOpen}
+          onClose={closeBackupModal}
+        />
 
-      {/* Legacy Data Migration & Third-Party Import Module */}
-      <LegacyDataMigrationModal />
+        {/* Legacy Data Migration & Third-Party Import Module */}
+        <LegacyDataMigrationModal />
+      </Suspense>
     </div>
   );
 }

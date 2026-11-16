@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
+import { exportRowsToExcel } from '../../utils/spreadsheet';
 import { 
   TrendingUp, 
   TrendingDown,
@@ -77,6 +78,9 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [marginFilter, setMarginFilter] = useState<'all' | 'champions' | 'risks'>('all');
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesPaymentFilter, setSalesPaymentFilter] = useState<string>('All');
+  const [salesSortOrder, setSalesSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // Robust helper to extract comparable YYYY-MM-DD from various date formats:
   // - ISO: "2026-10-02T00:41:44.123Z" or "2026-10-02 00:41:44"
@@ -169,9 +173,43 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
 
   // Filtered sales based on selected date range (Daily, Multi-day, Weekly, Monthly, All)
   const relevantSales = useMemo(() => {
-    if (dateRange === 'all') return sales;
-    return sales.filter(s => matchesDateRange(s.date_time || (s as any).timestamp));
+    const filtered = dateRange === 'all'
+      ? [...sales]
+      : sales.filter(s => matchesDateRange(s.date_time || (s as any).timestamp));
+    return filtered.sort((a, b) => {
+      const tA = new Date(a.date_time || (a as any).timestamp || 0).getTime() || 0;
+      const tB = new Date(b.date_time || (b as any).timestamp || 0).getTime() || 0;
+      return tB - tA;
+    });
   }, [sales, dateRange, customStartDate, customEndDate]);
+
+  // Itemized Sales Report (filtered & sorted by timestamp DESC/ASC)
+  const sortedSalesReport = useMemo(() => {
+    const q = salesSearchQuery.trim().toLowerCase();
+    const filtered = relevantSales.filter(sale => {
+      if (salesPaymentFilter !== 'All') {
+        if (salesPaymentFilter === 'Split') {
+          if (!(Array.isArray(sale.payment_splits) && sale.payment_splits.length > 0)) {
+            return false;
+          }
+        } else if (sale.payment_method !== salesPaymentFilter) {
+          return false;
+        }
+      }
+      if (!q) return true;
+      const invoice = String((sale as any).invoice_number || '').toLowerCase();
+      const txId = String(sale.transaction_id || '').toLowerCase();
+      const cashier = String((sale as any).staff_name || employees.find(e => e.staff_id === sale.staff_id)?.staff_name || sale.staff_id || '').toLowerCase();
+      const customer = String((sale as any).customer_name || customers.find(c => c.customer_id === sale.customer_id)?.full_name || 'Walk-in').toLowerCase();
+      return invoice.includes(q) || txId.includes(q) || cashier.includes(q) || customer.includes(q);
+    });
+
+    return [...filtered].sort((a, b) => {
+      const tA = new Date(a.date_time || (a as any).timestamp || 0).getTime() || 0;
+      const tB = new Date(b.date_time || (b as any).timestamp || 0).getTime() || 0;
+      return salesSortOrder === 'desc' ? tB - tA : tA - tB;
+    });
+  }, [relevantSales, salesSearchQuery, salesPaymentFilter, salesSortOrder, employees, customers]);
 
   // Filtered refunds based on selected date range
   const relevantRefunds = useMemo(() => {
@@ -1161,7 +1199,11 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   }, [retailGrossSales, totalDiscountsGiven, discountPercentageOfSales, discountedSalesCount, totalRefundAmount, totalRefundCount, netRevenue, netCogs, grossProfit, profitMargin]);
 
   const handlePrintReport = () => {
+    document.body.classList.add('printing-report');
     window.print();
+    setTimeout(() => {
+      document.body.classList.remove('printing-report');
+    }, 500);
   };
 
   const dateRangeLabel = useMemo(() => {
@@ -1196,6 +1238,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       
+      <div className="no-print space-y-6">
       {/* Top Header & Range Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -2775,6 +2818,157 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
 
       </div>
 
+      {/* Dedicated Itemized Sales Report & Transaction Ledger */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-50/70">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Sales Report & Transaction Ledger</span>
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                {sortedSalesReport.length} Txns
+              </span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Filtered by <strong>{dateRangeLabel}</strong> • Sorted by transaction timestamp ({salesSortOrder === 'desc' ? 'Newest First' : 'Oldest First'})
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <input
+              type="text"
+              value={salesSearchQuery}
+              onChange={(e) => setSalesSearchQuery(e.target.value)}
+              placeholder="Search Tx ID, Invoice, Cashier, Customer..."
+              className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 min-w-[220px]"
+            />
+
+            <select
+              value={salesPaymentFilter}
+              onChange={(e) => setSalesPaymentFilter(e.target.value)}
+              className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="All">All Payment Modes</option>
+              <option value="Cash">Cash</option>
+              <option value="POS">POS Terminal</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Credit / Pay Later">Credit / Pay Later</option>
+              <option value="Split">Split Payment</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() => setSalesSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg font-semibold flex items-center space-x-1"
+              title="Toggle chronological sort order"
+            >
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span>{salesSortOrder === 'desc' ? 'Newest First ↓' : 'Oldest First ↑'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const exportData = sortedSalesReport.map(sale => {
+                  const emp = employees.find(e => e.staff_id === sale.staff_id);
+                  const cust = customers.find(c => c.customer_id === sale.customer_id);
+                  const itemCount = Array.isArray(sale.items)
+                    ? sale.items.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0)
+                    : 1;
+                  return {
+                    'Date & Time': sale.date_time || (sale as any).timestamp || '',
+                    'Invoice / Tx ID': (sale as any).invoice_number || sale.transaction_id,
+                    'Transaction ID': sale.transaction_id,
+                    'Cashier': (sale as any).staff_name || emp?.staff_name || sale.staff_id || '',
+                    'Customer': (sale as any).customer_name || cust?.full_name || 'Walk-in Customer',
+                    'Items Qty': Math.round(itemCount * 100) / 100,
+                    'Payment Mode': sale.payment_method,
+                    'Discount (NGN)': Number(sale.discount_applied) || 0,
+                    'Net Total (NGN)': Number(sale.final_amount) || 0,
+                  };
+                });
+                exportRowsToExcel(`smartsales_sales_report_${new Date().toISOString().slice(0, 10)}.xlsx`, 'Sales Report', exportData);
+              }}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold flex items-center space-x-1.5 shadow-xs"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Export Excel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintReport}
+              className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold flex items-center space-x-1.5 shadow-xs"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Sales Report</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-[10px] uppercase sticky top-0 z-10">
+              <tr>
+                <th className="py-2.5 px-4">Date & Time</th>
+                <th className="py-2.5 px-4">Invoice / Tx ID</th>
+                <th className="py-2.5 px-4">Cashier</th>
+                <th className="py-2.5 px-4">Customer</th>
+                <th className="py-2.5 px-4 text-center">Items</th>
+                <th className="py-2.5 px-4">Payment Mode</th>
+                <th className="py-2.5 px-4 text-right">Discount (₦)</th>
+                <th className="py-2.5 px-4 text-right">Net Total (₦)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {sortedSalesReport.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-10 text-center text-slate-400">
+                    No sales transactions found for the selected date range and filters.
+                  </td>
+                </tr>
+              ) : (
+                sortedSalesReport.map((sale) => {
+                  const rawDate = sale.date_time || (sale as any).timestamp || '';
+                  const formattedDate = rawDate ? new Date(rawDate).toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                  }) : '—';
+                  const itemCount = Array.isArray(sale.items)
+                    ? sale.items.reduce((sum: number, it: any) => sum + (Number(it.quantity) || 1), 0)
+                    : 1;
+                  return (
+                    <tr key={sale.transaction_id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2.5 px-4 font-mono text-[11px] whitespace-nowrap text-slate-600">{formattedDate}</td>
+                      <td className="py-2.5 px-4 font-mono font-bold text-slate-900">
+                        <div>{(sale as any).invoice_number || sale.transaction_id}</div>
+                        {(sale as any).invoice_number && (
+                          <div className="text-[10px] font-normal text-slate-400">{sale.transaction_id}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-700">{(sale as any).staff_name || employees.find(e => e.staff_id === sale.staff_id)?.staff_name || sale.staff_id || '—'}</td>
+                      <td className="py-2.5 px-4 text-slate-700">{(sale as any).customer_name || customers.find(c => c.customer_id === sale.customer_id)?.full_name || 'Walk-in Customer'}</td>
+                      <td className="py-2.5 px-4 text-center font-mono">{Math.round(itemCount * 100) / 100}</td>
+                      <td className="py-2.5 px-4">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-800">
+                          {sale.payment_method}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono text-rose-600">
+                        {(Number(sale.discount_applied) || 0) > 0 ? `-₦${Number(sale.discount_applied).toLocaleString()}` : '₦0'}
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-700">
+                        ₦{(Number(sale.final_amount) || 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      </div>
+
       {/* Printable End-Of-Day Report Sheet (Official Audit Copy) */}
       <div id="printable-daily-report" className="bg-slate-50 p-6 rounded-2xl border border-slate-300 font-mono text-xs space-y-4 text-slate-900">
         <div className="border-b-2 border-slate-900 pb-3 text-center">
@@ -2870,6 +3064,50 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Itemized Sales Transactions Ledger in Printable Report */}
+        <div className="pt-2 border-t border-slate-300 space-y-2">
+          <div className="flex justify-between items-center font-bold border-b border-slate-300 pb-1">
+            <span>ITEMIZED SALES REPORT ({sortedSalesReport.length} TRANSACTIONS • {salesSortOrder === 'desc' ? 'NEWEST FIRST' : 'OLDEST FIRST'}):</span>
+            <span>TOTAL: ₦{sortedSalesReport.reduce((s, tx) => s + (Number(tx.final_amount) || 0), 0).toLocaleString()}</span>
+          </div>
+          <table className="w-full text-left text-[10px] border-collapse">
+            <thead>
+              <tr className="border-b border-slate-400 text-slate-700">
+                <th className="py-1 pr-2">DATE / TIME</th>
+                <th className="py-1 pr-2">INVOICE / TX ID</th>
+                <th className="py-1 pr-2">CASHIER</th>
+                <th className="py-1 pr-2">CUSTOMER</th>
+                <th className="py-1 pr-2">MODE</th>
+                <th className="py-1 text-right">NET TOTAL</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {sortedSalesReport.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-3 text-center text-slate-500">No sales transactions recorded for this period.</td>
+                </tr>
+              ) : (
+                sortedSalesReport.map((sale) => {
+                  const rawDate = sale.date_time || (sale as any).timestamp || '';
+                  const formattedDate = rawDate ? new Date(rawDate).toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                  }) : '—';
+                  return (
+                    <tr key={sale.transaction_id}>
+                      <td className="py-1 pr-2 whitespace-nowrap">{formattedDate}</td>
+                      <td className="py-1 pr-2 font-bold">{(sale as any).invoice_number || sale.transaction_id}</td>
+                      <td className="py-1 pr-2">{(sale as any).staff_name || employees.find(e => e.staff_id === sale.staff_id)?.staff_name || sale.staff_id || '—'}</td>
+                      <td className="py-1 pr-2">{(sale as any).customer_name || customers.find(c => c.customer_id === sale.customer_id)?.full_name || 'Walk-in'}</td>
+                      <td className="py-1 pr-2">{sale.payment_method}</td>
+                      <td className="py-1 text-right font-bold">₦{(Number(sale.final_amount) || 0).toLocaleString()}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
 
         <div className="pt-2 border-t border-slate-200 text-[10px] text-slate-500 flex justify-between">

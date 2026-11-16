@@ -5,7 +5,7 @@
 }
 
 @media print {
-  body * {
+  body:not(.printing-report) * {
     visibility: hidden;
   }
   #printable-receipt, #printable-receipt * {
@@ -36,17 +36,43 @@
     padding: 2.5mm 3.5mm;
     font-size: 10px;
   }
-  #printable-daily-report, #printable-daily-report * {
-    visibility: visible;
-  }
-  #printable-daily-report {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    margin: 0;
-    padding: 20px;
+
+  /* Clean multi-page executive & sales report printing */
+  body.printing-report,
+  body.printing-report html,
+  body.printing-report #root,
+  body.printing-report .h-screen,
+  body.printing-report main {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
     background: white !important;
+  }
+  body.printing-report aside,
+  body.printing-report header,
+  body.printing-report .no-print {
+    display: none !important;
+  }
+  body.printing-report #printable-daily-report {
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 16px !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+  body.printing-report table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  body.printing-report thead {
+    display: table-header-group;
+  }
+  body.printing-report tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 

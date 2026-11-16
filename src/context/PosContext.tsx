@@ -270,9 +270,9 @@ interface PosContextType {
   // Entity management
   addProduct: (product: Omit<Product, 'item_sn'>) => Product;
   bulkAddProducts: (products: Omit<Product, 'item_sn'>[]) => Product[];
-  bulkAddCustomers: (customersData: Partial<Customer>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
-  bulkAddSuppliers: (suppliersData: Partial<Supplier>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
-  bulkAddPurchaseOrders: (ordersData: Partial<PurchaseOrder>[], updateExisting?: boolean, updateInventory?: boolean) => Promise<{ success: boolean; count: number; error?: string }>;
+  bulkAddCustomers: (customersData: Partial<Customer>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; failed?: number; error?: string }>;
+  bulkAddSuppliers: (suppliersData: Partial<Supplier>[], updateExisting?: boolean) => Promise<{ success: boolean; count: number; failed?: number; error?: string }>;
+  bulkAddPurchaseOrders: (ordersData: Partial<PurchaseOrder>[], updateExisting?: boolean, updateInventory?: boolean) => Promise<{ success: boolean; count: number; failed?: number; error?: string }>;
   updateProduct: (item_sn: string, product: Partial<Product>) => void;
   deleteProduct: (item_sn: string) => void;
 
@@ -3551,12 +3551,17 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return createdProducts;
   };
 
-  const bulkAddCustomers = async (customersData: Partial<Customer>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; error?: string }> => {
+  const bulkAddCustomers = async (customersData: Partial<Customer>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; failed?: number; error?: string }> => {
     if (!customersData.length) return { success: true, count: 0 };
 
     const today = new Date().toISOString().split('T')[0];
+    let nextCustNum = customers.reduce((max, c) => {
+      const match = (c.customer_id || '').match(/\d+/);
+      return Math.max(max, match ? parseInt(match[0], 10) : 0);
+    }, 0);
+
     const normalizedCustomers: Customer[] = customersData.map(c => {
-      const id = c.customer_id || getNextCustomerId();
+      const id = c.customer_id || `CUST-${(++nextCustNum).toString().padStart(5, '0')}`;
       return {
         customer_id: id,
         full_name: c.full_name || 'Legacy Customer',
@@ -3609,11 +3614,16 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const bulkAddSuppliers = async (suppliersData: Partial<Supplier>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; error?: string }> => {
+  const bulkAddSuppliers = async (suppliersData: Partial<Supplier>[], updateExisting: boolean = true): Promise<{ success: boolean; count: number; failed?: number; error?: string }> => {
     if (!suppliersData.length) return { success: true, count: 0 };
 
+    let nextSupNum = suppliers.reduce((max, s) => {
+      const match = (s.supplier_id || '').match(/\d+/);
+      return Math.max(max, match ? parseInt(match[0], 10) : 0);
+    }, 0);
+
     const normalizedSuppliers: Supplier[] = suppliersData.map(s => {
-      const id = s.supplier_id || getNextSupplierId();
+      const id = s.supplier_id || `SUP-${(++nextSupNum).toString().padStart(5, '0')}`;
       return {
         supplier_id: id,
         supplier_name: s.supplier_name || 'Legacy Vendor',
