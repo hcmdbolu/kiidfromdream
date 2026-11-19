@@ -1243,7 +1243,7 @@ export const ReportingDashboard: React.FC<ReportingDashboardProps> = ({ onQuickR
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center space-x-2">
-            <span>Executive Sales & Inventory Analytics</span>
+            <span>Executive Report & Profit or Loss</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Real-time profit tracking, best-selling product rankings, cashier performance, and stock risk assessment.

@@ -913,12 +913,31 @@ app.post('/api/refunds', (req: Request, res: Response) => {
     if (!originalTx.refund_history) originalTx.refund_history = [];
     originalTx.refund_history.push(refund.refund_id);
 
-    // 9. Deduct refunded amount from Customer's total_spent
+    // 9. Deduct refunded amount from Customer's total_spent & reverse credit debt if credit sale
     const customerId = originalTx.customer_id || refund.customer_id;
+    const isCreditSale = originalTx.payment_method === 'Credit / Pay Later' || Number(originalTx.credit_amount || 0) > 0;
     if (customerId && customerId !== 'Walk-in') {
       const cust = db.customers.find(c => c.customer_id === customerId);
       if (cust) {
         cust.total_spent = Math.max(0, Math.round(((cust.total_spent || 0) - requestedAmount) * 100) / 100);
+        if (isCreditSale && requestedAmount > 0) {
+          const currentBal = Number(cust.balance) || 0;
+          const creditToReverse = Math.min(currentBal, requestedAmount);
+          cust.balance = Math.max(0, Math.round((currentBal - creditToReverse) * 100) / 100);
+          refund.credit_reversed_amount = creditToReverse;
+          if (!Array.isArray(cust.credit_history)) cust.credit_history = [];
+          cust.credit_history.unshift({
+            transaction_id: originalTx.transaction_id,
+            refund_id: refund.refund_id,
+            type: 'RETURN_CREDIT',
+            date: finalRefundDate,
+            credit_reversed: creditToReverse,
+            refund_amount: requestedAmount,
+            remaining_balance: cust.balance,
+            status: isNowFullRefund ? 'RETURNED' : 'PARTIALLY_RETURNED',
+            notes: `Return credit reversal (${refund.refund_id}): ${refund.reason || 'Goods returned'}`,
+          });
+        }
       }
     }
 

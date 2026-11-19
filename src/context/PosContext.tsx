@@ -2673,14 +2673,36 @@ export const PosProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // Deduct refunded amount from Customer's total_spent
+    // Deduct refunded amount from Customer's total_spent & reverse debt balance on credit sales
+    const isCreditSale = saleTx.payment_method === 'Credit / Pay Later' || Number(saleTx.credit_amount || 0) > 0;
     if (saleTx.customer_id && saleTx.customer_id !== 'Walk-in') {
       setCustomers(prev =>
         prev.map(c => {
           if (c.customer_id === saleTx.customer_id) {
+            const currentBal = Number(c.balance) || 0;
+            const creditToReverse = isCreditSale ? Math.min(currentBal, totalRefundAmount) : 0;
+            const nextBalance = isCreditSale
+              ? Math.max(0, Math.round((currentBal - creditToReverse) * 100) / 100)
+              : currentBal;
+            const nextCreditHistory = Array.isArray(c.credit_history) ? [...c.credit_history] : [];
+            if (isCreditSale && creditToReverse > 0) {
+              nextCreditHistory.unshift({
+                transaction_id: originalTxnId,
+                refund_id: refundId,
+                type: 'RETURN_CREDIT',
+                date: todayStr,
+                credit_reversed: creditToReverse,
+                refund_amount: totalRefundAmount,
+                remaining_balance: nextBalance,
+                status: isNowFullRefund ? 'RETURNED' : 'PARTIALLY_RETURNED',
+                notes: `Return credit reversal (${refundId}): ${reason}`,
+              });
+            }
             return {
               ...c,
               total_spent: Math.max(0, Math.round(((c.total_spent || 0) - totalRefundAmount) * 100) / 100),
+              balance: nextBalance,
+              credit_history: nextCreditHistory,
             };
           }
           return c;

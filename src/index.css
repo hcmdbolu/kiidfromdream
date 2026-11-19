@@ -5,7 +5,7 @@
 }
 
 @media print {
-  body:not(.printing-report) * {
+  body:not(.printing-report):not(.printing-customers-directory):not(.printing-suppliers-directory):not(.printing-inventory-stock):not(.printing-inventory-expired) * {
     visibility: hidden;
   }
   #printable-receipt, #printable-receipt * {
@@ -70,9 +70,79 @@
   body.printing-report thead {
     display: table-header-group;
   }
-  body.printing-report tr {
+  body.printing-report tr,
+  body.printing-customers-directory tr,
+  body.printing-suppliers-directory tr,
+  body.printing-inventory-stock tr,
+  body.printing-inventory-expired tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  /* Multi-page directory & inventory print modes */
+  body.printing-customers-directory,
+  body.printing-customers-directory html,
+  body.printing-customers-directory #root,
+  body.printing-customers-directory .h-screen,
+  body.printing-customers-directory main,
+  body.printing-suppliers-directory,
+  body.printing-suppliers-directory html,
+  body.printing-suppliers-directory #root,
+  body.printing-suppliers-directory .h-screen,
+  body.printing-suppliers-directory main,
+  body.printing-inventory-stock,
+  body.printing-inventory-stock html,
+  body.printing-inventory-stock #root,
+  body.printing-inventory-stock .h-screen,
+  body.printing-inventory-stock main,
+  body.printing-inventory-expired,
+  body.printing-inventory-expired html,
+  body.printing-inventory-expired #root,
+  body.printing-inventory-expired .h-screen,
+  body.printing-inventory-expired main {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  body.printing-customers-directory aside,
+  body.printing-customers-directory header,
+  body.printing-customers-directory .no-print,
+  body.printing-customers-directory .max-w-7xl > *:not(#printable-customers-directory),
+  body.printing-suppliers-directory aside,
+  body.printing-suppliers-directory header,
+  body.printing-suppliers-directory .no-print,
+  body.printing-suppliers-directory .max-w-7xl > *:not(#printable-suppliers-directory),
+  body.printing-inventory-stock aside,
+  body.printing-inventory-stock header,
+  body.printing-inventory-stock .no-print,
+  body.printing-inventory-stock .max-w-7xl > *:not(#printable-inventory-stock),
+  body.printing-inventory-expired aside,
+  body.printing-inventory-expired header,
+  body.printing-inventory-expired .no-print,
+  body.printing-inventory-expired .max-w-7xl > *:not(#printable-inventory-expired) {
+    display: none !important;
+  }
+
+  body.printing-customers-directory #printable-customers-directory,
+  body.printing-suppliers-directory #printable-suppliers-directory,
+  body.printing-inventory-stock #printable-inventory-stock,
+  body.printing-inventory-expired #printable-inventory-expired {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 12px !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  body.printing-customers-directory thead,
+  body.printing-suppliers-directory thead,
+  body.printing-inventory-stock thead,
+  body.printing-inventory-expired thead {
+    display: table-header-group;
   }
 }
 

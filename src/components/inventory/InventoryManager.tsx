@@ -20,7 +20,8 @@ import {
   Upload,
   FileSpreadsheet,
   Image as ImageIcon,
-  Barcode
+  Barcode,
+  Printer
 } from 'lucide-react';
 import { PinAuthModal } from '../security/PinAuthModal';
 import { CycleCountModal } from './CycleCountModal';
@@ -77,7 +78,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
     deleteProduct, 
     getNextItemSn,
     hasPermission,
-    activeStaff
+    activeStaff,
+    receiptSettings
   } = usePos();
 
   const canManageProducts = hasPermission('CAN_MANAGE_PRODUCTS');
@@ -377,7 +379,34 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2 no-print">
+          <button
+            type="button"
+            onClick={() => {
+              document.body.classList.add('printing-inventory-stock');
+              window.print();
+              setTimeout(() => document.body.classList.remove('printing-inventory-stock'), 500);
+            }}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-semibold text-xs shadow-xs transition-all cursor-pointer"
+            title="Print complete stock quantities and balance valuation report"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print Stock & Balance</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              document.body.classList.add('printing-inventory-expired');
+              window.print();
+              setTimeout(() => document.body.classList.remove('printing-inventory-expired'), 500);
+            }}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-lg font-semibold text-xs shadow-xs transition-all cursor-pointer"
+            title="Print report of all expired inventory items"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print Expired Stocks</span>
+          </button>
           {canCycleCount && (
             <button
               onClick={() => setIsCycleCountOpen(true)}
@@ -1165,6 +1194,142 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ onQuickOrder
           actionToRun();
         }}
       />
+
+      {/* Printable Report 1: All Stock & Balance */}
+      {(() => {
+        const totalUnits = products.reduce((s, p) => s + (Number(p.quantity) || 0), 0);
+        const totalCostVal = products.reduce((s, p) => s + ((Number(p.quantity) || 0) * (Number(p.item_cost) || 0)), 0);
+        const totalRetailVal = products.reduce((s, p) => s + ((Number(p.quantity) || 0) * (Number(p.selling_price) || 0)), 0);
+        return (
+          <div id="printable-inventory-stock" className="hidden print:block bg-white text-black p-6 font-sans text-xs space-y-4">
+            <div className="border-b-2 border-slate-900 pb-3 flex justify-between items-end">
+              <div>
+                <h2 className="text-lg font-black uppercase tracking-wide">{receiptSettings?.business_name || 'SMARTSALES LTD'} — ALL STOCK & BALANCE REPORT</h2>
+                <p className="text-[11px] text-slate-600">Printed: {new Date().toLocaleString('en-GB')} • Total SKUs: {products.length}</p>
+              </div>
+              <div className="text-right font-mono text-[11px] space-y-0.5">
+                <div>Total Units: <strong>{Math.round(totalUnits * 1000) / 1000}</strong></div>
+                <div>Cost Balance: <strong>₦{Math.round(totalCostVal).toLocaleString()}</strong></div>
+                <div>Retail Value: <strong>₦{Math.round(totalRetailVal).toLocaleString()}</strong></div>
+              </div>
+            </div>
+
+            <table className="w-full text-left text-[10px] border-collapse">
+              <thead>
+                <tr className="border-b-2 border-slate-800 bg-slate-100">
+                  <th className="py-1.5 px-2">SKU</th>
+                  <th className="py-1.5 px-2">Product Name</th>
+                  <th className="py-1.5 px-2">Category</th>
+                  <th className="py-1.5 px-2 text-right">Qty on Hand</th>
+                  <th className="py-1.5 px-2">Unit</th>
+                  <th className="py-1.5 px-2 text-right">Unit Cost</th>
+                  <th className="py-1.5 px-2 text-right">Selling Price</th>
+                  <th className="py-1.5 px-2 text-right">Cost Balance</th>
+                  <th className="py-1.5 px-2 text-right">Retail Balance</th>
+                  <th className="py-1.5 px-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {products.map((p) => {
+                  const qty = Number(p.quantity) || 0;
+                  const costBal = Math.round(qty * (Number(p.item_cost) || 0));
+                  const retailBal = Math.round(qty * (Number(p.selling_price) || 0));
+                  return (
+                    <tr key={p.item_sn}>
+                      <td className="py-1 px-2 font-mono">{p.item_sn}</td>
+                      <td className="py-1 px-2 font-bold">{p.item_name}</td>
+                      <td className="py-1 px-2">{p.product_category}</td>
+                      <td className="py-1 px-2 text-right font-mono font-bold">{qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                      <td className="py-1 px-2">{p.product_measure_unit}</td>
+                      <td className="py-1 px-2 text-right font-mono">₦{(Number(p.item_cost) || 0).toLocaleString()}</td>
+                      <td className="py-1 px-2 text-right font-mono">₦{(Number(p.selling_price) || 0).toLocaleString()}</td>
+                      <td className="py-1 px-2 text-right font-mono">₦{costBal.toLocaleString()}</td>
+                      <td className="py-1 px-2 text-right font-mono font-bold">₦{retailBal.toLocaleString()}</td>
+                      <td className="py-1 px-2">{p.status}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
+
+      {/* Printable Report 2: Expired Stocks */}
+      {(() => {
+        const todayMidnight = new Date();
+        todayMidnight.setHours(0, 0, 0, 0);
+        const expiredList = products.filter(p => {
+          if (!p.expiry_date) return false;
+          const exp = new Date(p.expiry_date);
+          if (isNaN(exp.getTime())) return false;
+          exp.setHours(0, 0, 0, 0);
+          return exp.getTime() < todayMidnight.getTime();
+        });
+        const expiredUnits = expiredList.reduce((s, p) => s + (Number(p.quantity) || 0), 0);
+        const expiredLoss = expiredList.reduce((s, p) => s + ((Number(p.quantity) || 0) * (Number(p.item_cost) || 0)), 0);
+        return (
+          <div id="printable-inventory-expired" className="hidden print:block bg-white text-black p-6 font-sans text-xs space-y-4">
+            <div className="border-b-2 border-rose-800 pb-3 flex justify-between items-end">
+              <div>
+                <h2 className="text-lg font-black uppercase tracking-wide text-rose-900">{receiptSettings?.business_name || 'SMARTSALES LTD'} — EXPIRED STOCKS REPORT</h2>
+                <p className="text-[11px] text-slate-600">Printed: {new Date().toLocaleString('en-GB')} • Expired SKUs: {expiredList.length}</p>
+              </div>
+              <div className="text-right font-mono text-[11px] space-y-0.5">
+                <div>Expired Units: <strong>{Math.round(expiredUnits * 1000) / 1000}</strong></div>
+                <div>Estimated Cost Loss: <strong className="text-rose-700">₦{Math.round(expiredLoss).toLocaleString()}</strong></div>
+              </div>
+            </div>
+
+            <table className="w-full text-left text-[10px] border-collapse">
+              <thead>
+                <tr className="border-b-2 border-slate-800 bg-rose-50">
+                  <th className="py-1.5 px-2">SKU</th>
+                  <th className="py-1.5 px-2">Product Name</th>
+                  <th className="py-1.5 px-2">Category</th>
+                  <th className="py-1.5 px-2 text-right">Qty on Hand</th>
+                  <th className="py-1.5 px-2">Unit</th>
+                  <th className="py-1.5 px-2 text-right">Unit Cost</th>
+                  <th className="py-1.5 px-2 text-right">Cost Loss</th>
+                  <th className="py-1.5 px-2">Expiry Date</th>
+                  <th className="py-1.5 px-2 text-right">Days Expired</th>
+                  <th className="py-1.5 px-2">Supplier</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {expiredList.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="py-6 text-center text-slate-500">No expired inventory items found as of today.</td>
+                  </tr>
+                ) : (
+                  expiredList.map((p) => {
+                    const qty = Number(p.quantity) || 0;
+                    const costLoss = Math.round(qty * (Number(p.item_cost) || 0));
+                    const exp = new Date(p.expiry_date);
+                    exp.setHours(0, 0, 0, 0);
+                    const daysExpired = Math.max(1, Math.round((todayMidnight.getTime() - exp.getTime()) / (1000 * 60 * 60 * 24)));
+                    const sup = suppliers.find(s => s.supplier_id === p.supplier_id);
+                    return (
+                      <tr key={p.item_sn}>
+                        <td className="py-1 px-2 font-mono">{p.item_sn}</td>
+                        <td className="py-1 px-2 font-bold">{p.item_name}</td>
+                        <td className="py-1 px-2">{p.product_category}</td>
+                        <td className="py-1 px-2 text-right font-mono font-bold">{qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
+                        <td className="py-1 px-2">{p.product_measure_unit}</td>
+                        <td className="py-1 px-2 text-right font-mono">₦{(Number(p.item_cost) || 0).toLocaleString()}</td>
+                        <td className="py-1 px-2 text-right font-mono font-bold text-rose-700">₦{costLoss.toLocaleString()}</td>
+                        <td className="py-1 px-2 font-mono">{p.expiry_date}</td>
+                        <td className="py-1 px-2 text-right font-mono">{daysExpired}d</td>
+                        <td className="py-1 px-2">{sup ? sup.supplier_name : p.supplier_id}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </div>
   );
 };

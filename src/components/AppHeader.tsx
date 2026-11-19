@@ -44,7 +44,7 @@ const TAB_TITLES: Record<string, { title: string; subtitle: string }> = {
     subtitle: 'Vendors, suppliers, receiving goods inspections, and supply chain tracking.',
   },
   reports: {
-    title: 'Executive Financial & P&L Reports',
+    title: 'Executive Report & Profit or Loss',
     subtitle: 'Gross revenue, margins, COGS, payment breakdown, and cashier shift balance reconciliation.',
   },
   audit: {

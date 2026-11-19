@@ -169,7 +169,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         },
         { 
           id: 'reports', 
-          label: 'Executive Reports & P&L', 
+          label: 'Executive Report & Profit or Loss', 
           icon: BarChart3, 
           badge: null,
           allowed: isManagerOrAbove,

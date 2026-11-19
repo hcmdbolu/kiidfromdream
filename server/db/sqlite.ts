@@ -1981,12 +1981,15 @@ export class PosDatabase {
         }
       }
 
-      // 3. Mark original transaction refund status if exists
+      // 3. Mark original transaction refund status & reverse credit debt if credit sale
       const origTxId = refundRecord.original_transaction_id;
+      const requestedAmt = Number(refundRecord.refund_amount) || 0;
+      let originalSaleObj: any = null;
       if (origTxId) {
         const saleRow = this.db.prepare('SELECT data FROM sales WHERE transaction_id = ?').get(origTxId) as { data: string } | undefined;
         if (saleRow) {
           const sale = JSON.parse(saleRow.data);
+          originalSaleObj = sale;
           const isFull = Boolean(refundRecord.is_full_refund);
           sale.status = isFull ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
           if (!sale.refund_history) sale.refund_history = [];
@@ -1997,6 +2000,48 @@ export class PosDatabase {
               data = ?
             WHERE transaction_id = ?
           `).run(sale.status, JSON.stringify(sale), origTxId);
+        }
+      }
+
+      // 3b. Update customer total_spent & reverse outstanding debt balance on credit sales
+      const targetCustId = originalSaleObj?.customer_id || refundRecord.customer_id;
+      if (targetCustId && targetCustId !== 'Walk-in') {
+        const custRow = this.db.prepare('SELECT data FROM customers WHERE customer_id = ?').get(targetCustId) as { data: string } | undefined;
+        if (custRow) {
+          const cust = JSON.parse(custRow.data);
+          cust.total_spent = Math.max(0, Math.round(((Number(cust.total_spent) || 0) - requestedAmt) * 100) / 100);
+
+          const isCreditSale = originalSaleObj && (
+            originalSaleObj.payment_method === 'Credit / Pay Later' ||
+            Number(originalSaleObj.credit_amount || 0) > 0
+          );
+
+          if (isCreditSale && requestedAmt > 0) {
+            const currentBal = Number(cust.balance) || 0;
+            const creditToReverse = Math.min(currentBal, requestedAmt);
+            cust.balance = Math.max(0, Math.round((currentBal - creditToReverse) * 100) / 100);
+            refundRecord.credit_reversed_amount = creditToReverse;
+
+            if (!Array.isArray(cust.credit_history)) cust.credit_history = [];
+            cust.credit_history.unshift({
+              transaction_id: origTxId,
+              refund_id: refundRecord.refund_id,
+              type: 'RETURN_CREDIT',
+              date: effectiveDate,
+              credit_reversed: creditToReverse,
+              refund_amount: requestedAmt,
+              remaining_balance: cust.balance,
+              status: Boolean(refundRecord.is_full_refund) ? 'RETURNED' : 'PARTIALLY_RETURNED',
+              notes: `Return credit reversal (${refundRecord.refund_id}): ${refundRecord.reason || 'Goods returned'}`,
+            });
+          }
+
+          this.db.prepare(`
+            UPDATE customers SET
+              balance = ?,
+              data = ?
+            WHERE customer_id = ?
+          `).run(Number(cust.balance) || 0, JSON.stringify(cust), targetCustId);
         }
       }
 

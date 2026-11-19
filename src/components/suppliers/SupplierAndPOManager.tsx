@@ -68,7 +68,8 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
     deletePurchaseOrder,
     getNextSupplierId,
     hasPermission,
-    activeStaff
+    activeStaff,
+    receiptSettings
   } = usePos();
 
   const canCreatePo = hasPermission('CAN_CREATE_PO');
@@ -658,6 +659,20 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
             </>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={() => {
+                  document.body.classList.add('printing-suppliers-directory');
+                  window.print();
+                  setTimeout(() => document.body.classList.remove('printing-suppliers-directory'), 500);
+                }}
+                className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs shadow-xs flex items-center space-x-1.5 transition-all cursor-pointer no-print"
+                title="Print full directory of all suppliers"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print All Suppliers</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setIsSupplierBulkOpen(true)}
@@ -2277,6 +2292,50 @@ export const SupplierAndPOManager: React.FC<SupplierAndPOManagerProps> = ({
         isOpen={isPoBulkOpen}
         onClose={() => setIsPoBulkOpen(false)}
       />
+
+      {/* Hidden Printable Directory of All Suppliers */}
+      <div id="printable-suppliers-directory" className="hidden print:block bg-white text-black p-6 font-sans text-xs space-y-4">
+        <div className="border-b-2 border-slate-900 pb-3 flex justify-between items-end">
+          <div>
+            <h2 className="text-lg font-black uppercase tracking-wide">{receiptSettings?.business_name || 'SMARTSALES LTD'} — ALL SUPPLIERS DIRECTORY</h2>
+            <p className="text-[11px] text-slate-600">Printed: {new Date().toLocaleString('en-GB')} • Total Suppliers: {suppliers.length}</p>
+          </div>
+          <div className="text-right font-mono text-[11px]">
+            <div>Active Vendors: {suppliers.filter(s => (s.status || 'Active') === 'Active').length}</div>
+          </div>
+        </div>
+
+        <table className="w-full text-left text-[11px] border-collapse">
+          <thead>
+            <tr className="border-b-2 border-slate-800 bg-slate-100">
+              <th className="py-1.5 px-2">Supplier ID</th>
+              <th className="py-1.5 px-2">Company / Vendor Name</th>
+              <th className="py-1.5 px-2">Contact Person</th>
+              <th className="py-1.5 px-2">Phone</th>
+              <th className="py-1.5 px-2">Email / Address</th>
+              <th className="py-1.5 px-2">Payment Terms</th>
+              <th className="py-1.5 px-2 text-center">Lead (d)</th>
+              <th className="py-1.5 px-2 text-center">Rating</th>
+              <th className="py-1.5 px-2">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {suppliers.map((s) => (
+              <tr key={s.supplier_id}>
+                <td className="py-1.5 px-2 font-mono">{s.supplier_id}</td>
+                <td className="py-1.5 px-2 font-bold">{s.supplier_name}</td>
+                <td className="py-1.5 px-2">{s.contact_person || '—'}</td>
+                <td className="py-1.5 px-2 font-mono">{s.phone_number || '—'}</td>
+                <td className="py-1.5 px-2">{[s.email, s.address].filter(Boolean).join(' • ') || '—'}</td>
+                <td className="py-1.5 px-2">{s.payment_terms || '—'}</td>
+                <td className="py-1.5 px-2 text-center font-mono">{s.lead_time_days ?? '—'}</td>
+                <td className="py-1.5 px-2 text-center font-mono">{s.reliability_rating ?? '—'}</td>
+                <td className="py-1.5 px-2">{s.status || 'Active'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

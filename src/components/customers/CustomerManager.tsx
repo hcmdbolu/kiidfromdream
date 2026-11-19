@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../../context/PosContext';
-import { Customer, CustomerType, Employee, CustomerDebtRepayment, SaleTransaction } from '../../types';
+import { Customer, CustomerType, Employee, CustomerDebtRepayment, SaleTransaction, RefundRecord } from '../../types';
 import {
   UserPlus,
   Search,
@@ -53,7 +53,7 @@ export interface UnifiedCustomerLedgerEntry {
   id: string;
   date_time: string;
   timestamp: number;
-  type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT';
+  type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT' | 'RETURN_CREDIT';
   ref_number: string;
   description: string;
   channel: string;
@@ -165,7 +165,8 @@ export const getCustomerDebtAging = (
 export const buildCustomerUnifiedLedger = (
   customer: Customer,
   allSales: SaleTransaction[],
-  allRepayments: CustomerDebtRepayment[]
+  allRepayments: CustomerDebtRepayment[],
+  allRefunds: RefundRecord[] = []
 ): UnifiedCustomerLedgerEntry[] => {
   const creditSales = allSales.filter(s => s.customer_id === customer.customer_id && s.payment_method === 'Credit / Pay Later');
   const repayments = allRepayments.filter(r => r.customer_id === customer.customer_id);
@@ -174,7 +175,7 @@ export const buildCustomerUnifiedLedger = (
     id: string;
     date_time: string;
     timestamp: number;
-    type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT';
+    type: 'OPENING_BALANCE' | 'CREDIT_INVOICE' | 'DOWN_PAYMENT' | 'DEBT_REPAYMENT' | 'RETURN_CREDIT';
     ref_number: string;
     description: string;
     channel: string;
@@ -265,6 +266,28 @@ export const buildCustomerUnifiedLedger = (
     });
   });
 
+  // Credit sale return reversals (netting off returned goods from customer balance)
+  const creditSaleIds = new Set(creditSales.map(s => s.transaction_id));
+  const creditRefunds = allRefunds.filter(r => creditSaleIds.has(r.original_transaction_id));
+  creditRefunds.forEach(ref => {
+    const refTime = new Date(ref.date_time || (ref as any).timestamp || 0).getTime() || 0;
+    const reversedAmt = Number((ref as any).credit_reversed_amount ?? ref.refund_amount) || 0;
+    if (reversedAmt <= 0) return;
+    events.push({
+      id: `RET-${ref.refund_id}`,
+      date_time: ref.date_time,
+      timestamp: refTime,
+      type: 'RETURN_CREDIT',
+      ref_number: ref.refund_id,
+      description: `Goods Returned Credit (${ref.original_transaction_id}): ${ref.reason || 'Return'}`,
+      channel: 'Credit Return Reversal',
+      channel_details: `Restocked: ${ref.item_name}`,
+      staff_name: ref.authorized_by || ref.staff_id,
+      debit: 0,
+      credit: reversedAmt,
+    });
+  });
+
   // Sort chronologically ascending
   events.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -308,6 +331,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
   const {
     customers,
     sales,
+    refunds,
     customerDebtRepayments,
     posTerminals,
     addCustomer,
@@ -727,8 +751,8 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
   // Customer Unified Financial Ledger (combining credit invoices, deposits, repayments with running balance)
   const customerUnifiedLedger = useMemo(() => {
     if (!selectedCustomerForDrawer) return [];
-    return buildCustomerUnifiedLedger(selectedCustomerForDrawer, sales, customerDebtRepayments);
-  }, [selectedCustomerForDrawer, sales, customerDebtRepayments]);
+    return buildCustomerUnifiedLedger(selectedCustomerForDrawer, sales, customerDebtRepayments, refunds);
+  }, [selectedCustomerForDrawer, sales, customerDebtRepayments, refunds]);
 
   // Customer Aging Details for drawer header
   const selectedCustomerDrawerAging = useMemo(() => {
@@ -753,7 +777,21 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex flex-wrap items-center gap-2 no-print">
+          <button
+            type="button"
+            onClick={() => {
+              document.body.classList.add('printing-customers-directory');
+              window.print();
+              setTimeout(() => document.body.classList.remove('printing-customers-directory'), 500);
+            }}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold text-xs shadow-xs transition-all cursor-pointer"
+            title="Print full directory of all registered customers"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print All Customers</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsBulkImportOpen(true)}
@@ -2393,7 +2431,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
 
       {/* Official Customer Statement of Account Modal */}
       {isStatementModalOpen && customerForStatement && (() => {
-        const statementLedger = buildCustomerUnifiedLedger(customerForStatement, sales, customerDebtRepayments);
+        const statementLedger = buildCustomerUnifiedLedger(customerForStatement, sales, customerDebtRepayments, refunds);
         const statementAging = getCustomerDebtAging(customerForStatement, sales, customerDebtRepayments);
         const totalInvoiced = statementLedger.reduce((sum, e) => sum + e.debit, 0);
         const totalSettled = statementLedger.reduce((sum, e) => sum + e.credit, 0);
@@ -2663,7 +2701,7 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
 
       {/* Hidden Printable Statement of Account for Native / Browser Print */}
       {statementToPrint && (() => {
-        const statementLedger = buildCustomerUnifiedLedger(statementToPrint, sales, customerDebtRepayments);
+        const statementLedger = buildCustomerUnifiedLedger(statementToPrint, sales, customerDebtRepayments, refunds);
         const statementAging = getCustomerDebtAging(statementToPrint, sales, customerDebtRepayments);
         const totalInvoiced = statementLedger.reduce((sum, e) => sum + e.debit, 0);
         const totalSettled = statementLedger.reduce((sum, e) => sum + e.credit, 0);
@@ -2796,6 +2834,49 @@ export const CustomerManager: React.FC<CustomerManagerProps> = ({ onSelectCustom
         isOpen={isBulkImportOpen}
         onClose={() => setIsBulkImportOpen(false)}
       />
+
+      {/* Hidden Printable Directory of All Customers */}
+      <div id="printable-customers-directory" className="hidden print:block bg-white text-black p-6 font-sans text-xs space-y-4">
+        <div className="border-b-2 border-slate-900 pb-3 flex justify-between items-end">
+          <div>
+            <h2 className="text-lg font-black uppercase tracking-wide">{receiptSettings?.business_name || 'SMARTSALES LTD'} — ALL CUSTOMERS DIRECTORY</h2>
+            <p className="text-[11px] text-slate-600">Printed: {new Date().toLocaleString('en-GB')} • Registered Buyers: {customers.length}</p>
+          </div>
+          <div className="text-right font-mono">
+            <div className="text-[10px] text-slate-500">TOTAL OUTSTANDING RECEIVABLES</div>
+            <div className="text-sm font-black text-rose-700">₦{customers.reduce((sum, c) => sum + (Number(c.balance) || 0), 0).toLocaleString()}</div>
+          </div>
+        </div>
+
+        <table className="w-full text-left text-[11px] border-collapse">
+          <thead>
+            <tr className="border-b-2 border-slate-800 bg-slate-100">
+              <th className="py-1.5 px-2">ID</th>
+              <th className="py-1.5 px-2">Customer Name</th>
+              <th className="py-1.5 px-2">Phone</th>
+              <th className="py-1.5 px-2">Email / Address</th>
+              <th className="py-1.5 px-2">Tier</th>
+              <th className="py-1.5 px-2 text-right">Disc %</th>
+              <th className="py-1.5 px-2 text-right">Total Spent</th>
+              <th className="py-1.5 px-2 text-right">Balance Owing</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {customers.map((c) => (
+              <tr key={c.customer_id}>
+                <td className="py-1.5 px-2 font-mono">{c.customer_id}</td>
+                <td className="py-1.5 px-2 font-bold">{c.full_name}</td>
+                <td className="py-1.5 px-2 font-mono">{c.phone_number || '—'}</td>
+                <td className="py-1.5 px-2">{[c.email, c.address].filter(Boolean).join(' • ') || '—'}</td>
+                <td className="py-1.5 px-2">{c.customer_type || 'Retail'}</td>
+                <td className="py-1.5 px-2 text-right font-mono">{c.discount_percent || 0}%</td>
+                <td className="py-1.5 px-2 text-right font-mono">₦{(Number(c.total_spent) || 0).toLocaleString()}</td>
+                <td className="py-1.5 px-2 text-right font-mono font-bold">₦{(Number(c.balance) || 0).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

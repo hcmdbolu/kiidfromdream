@@ -86,7 +86,7 @@ const PERMISSION_GROUPS: {
     category: 'Financial Intelligence & Reports',
     description: 'Business analytics, profitability, and shift audit logs',
     permissions: [
-      { key: 'CAN_VIEW_REPORTS', label: 'Executive P&L & Analytics', desc: 'View gross margin, COGS, net revenue, and cashier shift reconciliation reports' },
+      { key: 'CAN_VIEW_REPORTS', label: 'Executive Report & Profit or Loss', desc: 'View gross margin, COGS, net revenue, and cashier shift reconciliation reports' },
       { key: 'CAN_VIEW_AUDIT_LOG', label: 'Cryptographic Audit Ledger', desc: 'Inspect SHA-256 tamper-evident transaction logs, overrides, and security events' },
     ],
   },

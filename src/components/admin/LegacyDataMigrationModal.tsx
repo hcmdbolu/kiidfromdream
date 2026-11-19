@@ -342,7 +342,7 @@ export const LegacyDataMigrationModal: React.FC = () => {
                 </span>
               </h3>
               <p className="text-xs text-slate-300">
-                Safely integrate legacy transaction archives into SQLite and Executive P&L without inflating cash drawers
+                Safely integrate legacy transaction archives into SQLite and Executive Report & Profit or Loss without inflating cash drawers
               </p>
             </div>
           </div>
@@ -403,7 +403,7 @@ export const LegacyDataMigrationModal: React.FC = () => {
                   <div>
                     <h4 className="text-xl font-bold text-slate-900">Migration Successfully Committed!</h4>
                     <p className="text-sm text-slate-600 mt-1 max-w-md mx-auto">
-                      All historical sales have been atomically written to the permanent SQLite database and indexed into Executive P&L.
+                      All historical sales have been atomically written to the permanent SQLite database and indexed into Executive Report & Profit or Loss.
                     </p>
                   </div>
 
@@ -632,7 +632,7 @@ export const LegacyDataMigrationModal: React.FC = () => {
                   </h5>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Item Cost Price (For P&L)</label>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Item Cost Price (For Profit or Loss)</label>
                     <select
                       value={mapping.cost_price}
                       onChange={(e) => setMapping({ ...mapping, cost_price: e.target.value })}
@@ -928,7 +928,7 @@ export const LegacyDataMigrationModal: React.FC = () => {
                 <div>
                   <h5 className="font-bold text-xs text-emerald-950">Architectural Drawer Safety Guarantee</h5>
                   <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed">
-                    These {preFlightStats.rowCount.toLocaleString()} transactions will populate Executive P&L, customer transaction histories, and inventory audit logs. However, because they are tagged with <code className="bg-emerald-200/60 px-1 py-0.2 rounded font-mono text-[10px]">is_historical_import: true</code>, they will <strong>NEVER</strong> inflate today's physical cashier cash drawers or distort drawer balancing.
+                    These {preFlightStats.rowCount.toLocaleString()} transactions will populate Executive Report & Profit or Loss, customer transaction histories, and inventory audit logs. However, because they are tagged with <code className="bg-emerald-200/60 px-1 py-0.2 rounded font-mono text-[10px]">is_historical_import: true</code>, they will <strong>NEVER</strong> inflate today's physical cashier cash drawers or distort drawer balancing.
                   </p>
                 </div>
               </div>
